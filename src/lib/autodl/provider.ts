@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma'
 import { composeModelKey } from '@/lib/model-config-contract'
+import type { OpenAICompatMediaTemplate } from '@/lib/openai-compat-media-template'
 import { getLocalModelCatalog, isAutoDLProfileId, type AutoDLProfileId, type LocalModelCatalogItem } from './catalog'
 
 type AutoDLWorkerModelType = 'image' | 'video' | 'audio'
@@ -20,6 +21,9 @@ interface StoredModel {
   type: AutoDLWorkerModelType
   provider: string
   price: number
+  compatMediaTemplate?: OpenAICompatMediaTemplate
+  compatMediaTemplateCheckedAt?: string
+  compatMediaTemplateSource?: 'manual'
 }
 
 export interface AutoDLWorkerProviderConfig {
@@ -59,6 +63,88 @@ function normalizeWorkerBaseUrl(value: string): string {
   return `${base}/v1`
 }
 
+function buildDirectApiImageTemplate(): OpenAICompatMediaTemplate {
+  return {
+    version: 1,
+    mediaType: 'image',
+    mode: 'sync',
+    create: {
+      method: 'POST',
+      path: '/autogpu/images',
+      contentType: 'application/json',
+      bodyTemplate: {
+        model: '{{model}}',
+        prompt: '{{prompt}}',
+        images: '{{images}}',
+        size: '{{size}}',
+        resolution: '{{resolution}}',
+        aspect_ratio: '{{aspect_ratio}}',
+      },
+    },
+    response: {
+      outputUrlPath: '$.data[0].url',
+      outputUrlsPath: '$.data',
+      errorPath: '$.error.message',
+    },
+  }
+}
+
+function buildDirectApiVideoTemplate(): OpenAICompatMediaTemplate {
+  return {
+    version: 1,
+    mediaType: 'video',
+    mode: 'async',
+    create: {
+      method: 'POST',
+      path: '/autogpu/videos',
+      contentType: 'application/json',
+      bodyTemplate: {
+        model: '{{model}}',
+        prompt: '{{prompt}}',
+        image: '{{image}}',
+        duration: '{{duration}}',
+        size: '{{size}}',
+        resolution: '{{resolution}}',
+        aspect_ratio: '{{aspect_ratio}}',
+      },
+    },
+    status: {
+      method: 'GET',
+      path: '/autogpu/videos/{{task_id}}',
+    },
+    response: {
+      taskIdPath: '$.id',
+      statusPath: '$.status',
+      outputUrlPath: '$.video_url',
+      errorPath: '$.error.message',
+    },
+    polling: {
+      intervalMs: 5000,
+      timeoutMs: 1800000,
+      doneStates: ['completed', 'succeeded', 'success', 'done'],
+      failStates: ['failed', 'error', 'cancelled', 'canceled'],
+    },
+  }
+}
+
+function buildDirectApiTemplateForModel(model: LocalModelCatalogItem): Pick<StoredModel, 'compatMediaTemplate' | 'compatMediaTemplateCheckedAt' | 'compatMediaTemplateSource'> {
+  if (model.modality === 'image') {
+    return {
+      compatMediaTemplate: buildDirectApiImageTemplate(),
+      compatMediaTemplateCheckedAt: new Date(0).toISOString(),
+      compatMediaTemplateSource: 'manual',
+    }
+  }
+  if (model.modality === 'video') {
+    return {
+      compatMediaTemplate: buildDirectApiVideoTemplate(),
+      compatMediaTemplateCheckedAt: new Date(0).toISOString(),
+      compatMediaTemplateSource: 'manual',
+    }
+  }
+  return {}
+}
+
 export function buildAutoDLWorkerProviderConfig(
   params: BuildAutoDLWorkerProviderConfigParams,
 ): AutoDLWorkerProviderConfig {
@@ -74,6 +160,7 @@ export function buildAutoDLWorkerProviderConfig(
     type: toWorkerModelType(model),
     provider: providerId,
     price: 0,
+    ...buildDirectApiTemplateForModel(model),
   }))
 
   return {

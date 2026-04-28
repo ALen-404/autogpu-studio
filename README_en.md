@@ -82,7 +82,18 @@ Then open “Profile / AutoDL Instance”:
 5. Click “Sync” after the instance boots. If the Worker health check passes, the provider and models are added automatically.
 6. Use “Power Off” or “Release” when finished to avoid continued AutoDL billing.
 
-The built-in bootstrap starts a minimal Worker shell with `/health`, `/v1/models`, `/v1/images/*`, `/v1/videos`, and `/v1/audio/speech`. Real video, image, and TTS inference still requires an AutoDL image that wires those routes to ComfyUI, Diffusers, CosyVoice, F5-TTS, or another backend.
+The built-in bootstrap starts a lightweight Worker with `/health`, `/v1/models`, `/v1/autogpu/images`, `/v1/autogpu/videos`, `/v1/autogpu/videos/{task_id}`, and `/v1/audio/speech`. AutoGPU Studio automatically registers image and video models with these direct API templates, so generation still uses the platform storyboard, character, location, shot, and prompt data. ComfyUI is not required.
+
+If the AutoDL image already exposes inference services, configure the endpoints in the platform `.env`; they are injected into the AutoDL start command when an instance is created:
+
+```bash
+AUTOGPU_IMAGE_API_URL=http://127.0.0.1:7001/images
+AUTOGPU_VIDEO_API_URL=http://127.0.0.1:7002/videos
+AUTOGPU_VIDEO_STATUS_API_URL=http://127.0.0.1:7002/videos/{task_id}
+AUTOGPU_TTS_API_URL=http://127.0.0.1:7003/speech
+```
+
+Backends only need to accept JSON and return common fields: images may return `url`, `image_url`, `data[0].url`, or base64; video create should return `id` / `task_id`, the status endpoint should return `status` and `video_url`; TTS may return audio bytes or JSON with `audio_url`.
 
 ## Design Document
 

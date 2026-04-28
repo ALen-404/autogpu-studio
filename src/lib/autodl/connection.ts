@@ -134,6 +134,34 @@ function normalizeServerUrl(value: string): string {
   return parsed.toString().replace(/\/+$/, '')
 }
 
+const AUTODL_WORKER_BACKEND_ENV_KEYS = [
+  'AUTOGPU_IMAGE_API_URL',
+  'AUTOGPU_IMAGE_API_KEY',
+  'AUTOGPU_IMAGE_HEADERS_JSON',
+  'AUTOGPU_IMAGE_SCRIPT',
+  'AUTOGPU_IMAGE_TIMEOUT_SECONDS',
+  'AUTOGPU_VIDEO_API_URL',
+  'AUTOGPU_VIDEO_API_KEY',
+  'AUTOGPU_VIDEO_HEADERS_JSON',
+  'AUTOGPU_VIDEO_SCRIPT',
+  'AUTOGPU_VIDEO_STATUS_API_URL',
+  'AUTOGPU_VIDEO_STATUS_METHOD',
+  'AUTOGPU_VIDEO_TIMEOUT_SECONDS',
+  'AUTOGPU_TTS_API_URL',
+  'AUTOGPU_TTS_API_KEY',
+  'AUTOGPU_TTS_HEADERS_JSON',
+  'AUTOGPU_TTS_SCRIPT',
+  'AUTOGPU_TTS_TIMEOUT_SECONDS',
+  'AUTOGPU_SCRIPT_DIR',
+] as const
+
+function buildWorkerBackendEnvAssignments(): string[] {
+  return AUTODL_WORKER_BACKEND_ENV_KEYS.flatMap((key) => {
+    const value = readTrimmedString(process.env[key])
+    return value ? [`${key}=${shellValue(value)}`] : []
+  })
+}
+
 export function buildAutoDLWorkerStartCommand(input: AutoDLWorkerStartCommandInput): string {
   const serverUrl = normalizeServerUrl(input.serverUrl)
   const workerSecret = readTrimmedString(input.workerSecret)
@@ -145,6 +173,7 @@ export function buildAutoDLWorkerStartCommand(input: AutoDLWorkerStartCommandInp
     `AUTOGPU_WORKER_SECRET=${shellValue(workerSecret)}`,
     `AUTOGPU_WORKER_PORT=${input.preferredPort}`,
     `AUTOGPU_MODEL_BUNDLE=${shellValue(modelBundle)}`,
+    ...buildWorkerBackendEnvAssignments(),
     'bash -lc',
     shellValue('curl -fsSL "$AUTOGPU_SERVER_URL/api/autodl/worker/bootstrap" | bash'),
   ].join(' ')

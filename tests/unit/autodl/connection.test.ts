@@ -149,6 +149,24 @@ describe('AutoDL 连接配置', () => {
     expect(command).toContain('AUTOGPU_MODEL_BUNDLE=ltx-video')
   })
 
+  it('启动命令会注入 AutoDL Worker 直接 API 后端变量', () => {
+    vi.stubEnv('AUTOGPU_IMAGE_API_URL', 'http://127.0.0.1:7001/images')
+    vi.stubEnv('AUTOGPU_VIDEO_API_URL', 'http://127.0.0.1:7002/videos')
+    vi.stubEnv('AUTOGPU_TTS_API_URL', 'http://127.0.0.1:7003/speech')
+
+    const command = buildAutoDLWorkerStartCommand({
+      serverUrl: 'https://cryptotools.bar',
+      workerSecret: 'secret-123',
+      preferredPort: 6006,
+      modelBundle: 'default',
+    })
+
+    expect(command).toContain('AUTOGPU_IMAGE_API_URL=http://127.0.0.1:7001/images')
+    expect(command).toContain('AUTOGPU_VIDEO_API_URL=http://127.0.0.1:7002/videos')
+    expect(command).toContain('AUTOGPU_TTS_API_URL=http://127.0.0.1:7003/speech')
+    vi.unstubAllEnvs()
+  })
+
   it('按 AutoDL 官方 Pro API 使用 GET 查询实例详情和状态', async () => {
     const fetcher = vi.fn(async (url: string | URL | Request) => {
       const endpoint = String(url)
@@ -211,6 +229,7 @@ describe('AutoDL 连接配置', () => {
 
     expect(script).toContain('AUTOGPU_WORKER_SECRET')
     expect(script).toContain('AUTOGPU_MODEL_BUNDLE')
+    expect(script).toContain('export AUTOGPU_WORKER_PORT="$PORT"')
     expect(script).toContain('/health')
     expect(script).toContain('/v1/models')
     expect(script).toContain('/v1/audio/speech')
@@ -232,5 +251,59 @@ describe('AutoDL 连接配置', () => {
     expect(config.models.some((model) => model.type === 'video' && model.modelId.includes('ltx-video'))).toBe(true)
     expect(config.models.some((model) => model.type === 'image')).toBe(true)
     expect(config.models.some((model) => model.type === 'audio')).toBe(true)
+  })
+
+  it('AutoDL 图片和视频模型会自动注册直接 API 媒体模板', () => {
+    const config = buildAutoDLWorkerProviderConfig({
+      sessionId: 'session-1',
+      profileId: '5090-p',
+      workerBaseUrl: 'http://worker.autodl.com:8443',
+      workerSharedSecretCiphertext: 'encrypted-secret',
+    })
+
+    const imageModel = config.models.find((model) => model.type === 'image')
+    const videoModel = config.models.find((model) => model.type === 'video')
+    const audioModel = config.models.find((model) => model.type === 'audio')
+
+    expect(imageModel?.compatMediaTemplate).toMatchObject({
+      mediaType: 'image',
+      mode: 'sync',
+      create: {
+        method: 'POST',
+        path: '/autogpu/images',
+      },
+      response: {
+        outputUrlPath: '$.data[0].url',
+      },
+    })
+    expect(videoModel?.compatMediaTemplate).toMatchObject({
+      mediaType: 'video',
+      mode: 'async',
+      create: {
+        method: 'POST',
+        path: '/autogpu/videos',
+      },
+      status: {
+        method: 'GET',
+        path: '/autogpu/videos/{{task_id}}',
+      },
+      response: {
+        taskIdPath: '$.id',
+        statusPath: '$.status',
+        outputUrlPath: '$.video_url',
+      },
+    })
+    expect(audioModel?.compatMediaTemplate).toBeUndefined()
+  })
+
+  it('Worker bootstrap 暴露直接 API 后端适配入口', () => {
+    const script = buildAutoDLWorkerBootstrapScript()
+
+    expect(script).toContain('AUTOGPU_IMAGE_API_URL')
+    expect(script).toContain('AUTOGPU_VIDEO_API_URL')
+    expect(script).toContain('AUTOGPU_TTS_API_URL')
+    expect(script).toContain('/v1/autogpu/images')
+    expect(script).toContain('/v1/autogpu/videos')
+    expect(script).toContain('call_direct_backend')
   })
 })

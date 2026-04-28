@@ -90,7 +90,18 @@ AUTODL_CONNECTION_MODE=user_api_key
 5. 实例启动后点击“同步”。同步成功且 Worker 健康检查通过后，对应 Provider 和模型会自动写入平台模型配置。
 6. 用完后在同一页面执行“关机”或“释放”，避免 AutoDL 继续计费。
 
-内置 bootstrap 会启动一个最小 Worker 壳，提供 `/health`、`/v1/models`、`/v1/images/*`、`/v1/videos` 和 `/v1/audio/speech` 路由。真实视频、图片和 TTS 推理需要在 AutoDL 镜像内接入 ComfyUI、Diffusers、CosyVoice、F5-TTS 等后端，或替换 Worker 实现。
+内置 bootstrap 会启动一个轻量 Worker，提供 `/health`、`/v1/models`、`/v1/autogpu/images`、`/v1/autogpu/videos`、`/v1/autogpu/videos/{task_id}` 和 `/v1/audio/speech`。平台会自动把图片和视频模型注册为这些直接 API 模板，因此生成流程仍然使用平台里的分镜、人物、场景、镜头和提示词数据，不强依赖 ComfyUI。
+
+如果 AutoDL 镜像里已有推理服务，可以在平台 `.env` 中配置这些地址，创建实例时会自动注入到 AutoDL start command：
+
+```bash
+AUTOGPU_IMAGE_API_URL=http://127.0.0.1:7001/images
+AUTOGPU_VIDEO_API_URL=http://127.0.0.1:7002/videos
+AUTOGPU_VIDEO_STATUS_API_URL=http://127.0.0.1:7002/videos/{task_id}
+AUTOGPU_TTS_API_URL=http://127.0.0.1:7003/speech
+```
+
+这些后端只需要接受 JSON 请求并返回常见字段即可：图片返回 `url`、`image_url`、`data[0].url` 或 base64；视频创建返回 `id` / `task_id`，状态接口返回 `status` 和 `video_url`；TTS 可以返回音频二进制，也可以返回 JSON 中的 `audio_url`。
 
 ## 设计文档
 
@@ -140,7 +151,7 @@ npm run dev
 
 ## 后续工程任务
 
-- 完善真实模型 Worker：接入 ComfyUI、Diffusers、Wan、LTX、FLUX、CosyVoice、F5-TTS 等后端。
+- 完善真实模型 Worker：继续补充 Wan、LTX、FLUX、CosyVoice、F5-TTS 等直接 API 或脚本示例。
 - 增加远程 Worker 任务队列、结果回传和失败重试。
 - 增加更细的实例能力探测和模型许可证展示。
 - 增加实例健康检查、断线重连和任务失败补偿。
