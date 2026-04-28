@@ -1,12 +1,11 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { AppIcon } from '@/components/ui/icons'
 import { apiFetch } from '@/lib/api-fetch'
 
 type AutoDLProfileId = 'pro6000-p' | '5090-p'
-type LocalModelModality = 'video' | 'image' | 'tts'
 type AutoDLPreferredPort = 6006 | 6008
 
 interface AutoDLProfile {
@@ -19,17 +18,10 @@ interface AutoDLProfile {
   priceMarkupPercent: number
 }
 
-interface AutoDLConnectionMode {
-  id: 'manual' | 'user_api_key'
-  displayName: string
-  scope: 'public_demo_safe' | 'self_hosted_only'
-  requiresApiKey: boolean
-}
-
 interface LocalModel {
   id: string
   name: string
-  modality: LocalModelModality
+  modality: 'video' | 'image' | 'tts'
   supportedProfileIds: AutoDLProfileId[]
   recommendedProfileId: AutoDLProfileId
   status: 'supported' | 'experimental'
@@ -40,7 +32,6 @@ interface ProfilesPayload {
   success: boolean
   officialUrl: string
   defaultProfileId: AutoDLProfileId
-  connectionModes: AutoDLConnectionMode[]
   profiles: AutoDLProfile[]
 }
 
@@ -106,7 +97,6 @@ interface AutoDLSessionPayload {
   message?: string
 }
 
-const MODALITIES: LocalModelModality[] = ['video', 'image', 'tts']
 const AUTODL_PORTS: AutoDLPreferredPort[] = [6006, 6008]
 const DEFAULT_MODEL_BUNDLE = 'default'
 
@@ -121,7 +111,6 @@ export function AutoDLTab() {
   const t = useTranslations('profile.autodl')
   const tc = useTranslations('common')
   const [profiles, setProfiles] = useState<AutoDLProfile[]>([])
-  const [connectionModes, setConnectionModes] = useState<AutoDLConnectionMode[]>([])
   const [officialUrl, setOfficialUrl] = useState('https://www.autodl.com/home')
   const [selectedProfileId, setSelectedProfileId] = useState<AutoDLProfileId>('5090-p')
   const [models, setModels] = useState<LocalModel[]>([])
@@ -158,7 +147,6 @@ export function AutoDLTab() {
         if (!payload.success || !Array.isArray(payload.profiles)) throw new Error('profiles')
         if (cancelled) return
         setProfiles(payload.profiles)
-        setConnectionModes(Array.isArray(payload.connectionModes) ? payload.connectionModes : [])
         setOfficialUrl(payload.officialUrl || 'https://www.autodl.com/home')
         setConnection(connectionPayload.connection || null)
         setSelectedProfileId(connectionPayload.connection?.defaultProfileId || payload.defaultProfileId || '5090-p')
@@ -208,15 +196,11 @@ export function AutoDLTab() {
   const connectionStatus = connection?.status || 'unconfigured'
   const tokenUpdatedAt = formatDateTime(connection?.tokenUpdatedAt || null)
   const probeAt = formatDateTime(connection?.lastProbeAt || null)
-  const groupedModels = useMemo(() => {
-    return MODALITIES.map((modality) => ({
-      modality,
-      models: models.filter((model) => model.modality === modality),
-    }))
-  }, [models])
   const selectedBundleName = selectedModelBundle === DEFAULT_MODEL_BUNDLE
     ? t('modelBundleDefault')
     : models.find((model) => model.id === selectedModelBundle)?.name || selectedModelBundle
+  const imageReady = !!(defaultImageUuid.trim() || connection?.defaultImageUuid)
+  const canStartSession = sessionBusy === null && !!connection?.configured && imageReady
 
   useEffect(() => {
     if (selectedModelBundle !== DEFAULT_MODEL_BUNDLE && !models.some((model) => model.id === selectedModelBundle)) {
@@ -394,7 +378,7 @@ export function AutoDLTab() {
       <div className="flex items-center justify-between border-b border-[var(--glass-stroke-base)] px-6 py-4">
         <div>
           <h2 className="text-lg font-semibold text-[var(--glass-text-primary)]">{t('title')}</h2>
-          <p className="mt-1 text-xs text-[var(--glass-text-tertiary)]">{t('subtitle')}</p>
+          <p className="mt-1 text-xs text-[var(--glass-text-tertiary)]">{t('simpleSubtitle')}</p>
         </div>
         <a
           href={officialUrl}
@@ -408,7 +392,7 @@ export function AutoDLTab() {
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        <div className="space-y-6 p-6">
+        <div className="mx-auto w-full max-w-5xl space-y-5 p-5">
           {error && (
             <div className="flex items-center gap-2 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-500">
               <AppIcon name="alert" className="h-4 w-4" />
@@ -416,152 +400,157 @@ export function AutoDLTab() {
             </div>
           )}
 
-          <section className="grid gap-3 md:grid-cols-3">
-            <div className="glass-surface-soft rounded-2xl border border-[var(--glass-stroke-base)] p-4">
-              <div className="flex items-center gap-2 text-xs font-medium text-[var(--glass-text-tertiary)]">
-                <AppIcon name="badgeCheck" className="h-4 w-4" />
-                {t('nonCommercial')}
+          <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+            <div className="rounded-2xl border border-[var(--glass-stroke-base)] bg-[var(--glass-bg-muted)] p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2 text-xs font-medium text-[var(--glass-text-tertiary)]">
+                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--glass-tone-info-bg)] text-[var(--glass-tone-info-fg)]">1</span>
+                    {t('stepAccount')}
+                  </div>
+                  <h3 className="mt-3 text-base font-semibold text-[var(--glass-text-primary)]">{t('connectionTitle')}</h3>
+                  <p className="mt-1 text-xs text-[var(--glass-text-tertiary)]">{t('simpleConnectionDescription')}</p>
+                </div>
+                <span className={`glass-chip text-[11px] ${
+                  connectionStatus === 'verified'
+                    ? 'glass-chip-success'
+                    : connectionStatus === 'verify_failed'
+                      ? 'glass-chip-warning'
+                      : 'glass-chip-info'
+                }`}>
+                  {t(`connectionStatus.${connectionStatus}`)}
+                </span>
               </div>
-              <p className="mt-3 text-xl font-semibold text-[var(--glass-text-primary)]">{t('userOwned')}</p>
-            </div>
-            <div className="glass-surface-soft rounded-2xl border border-[var(--glass-stroke-base)] p-4">
-              <div className="flex items-center gap-2 text-xs font-medium text-[var(--glass-text-tertiary)]">
-                <AppIcon name="coins" className="h-4 w-4" />
-                {t('pricing')}
-              </div>
-              <p className="mt-3 text-xl font-semibold text-[var(--glass-text-primary)]">{t('zeroMarkup')}</p>
-            </div>
-            <div className="glass-surface-soft rounded-2xl border border-[var(--glass-stroke-base)] p-4">
-              <div className="flex items-center gap-2 text-xs font-medium text-[var(--glass-text-tertiary)]">
-                <AppIcon name="link" className="h-4 w-4" />
-                {t('mode')}
-              </div>
-              <p className="mt-3 text-xl font-semibold text-[var(--glass-text-primary)]">{t('manualFirst')}</p>
-            </div>
-          </section>
 
-          <section className="space-y-3">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <h3 className="text-sm font-semibold text-[var(--glass-text-primary)]">{t('connectionTitle')}</h3>
-                <p className="mt-1 text-xs text-[var(--glass-text-tertiary)]">{t('connectionDescription')}</p>
-              </div>
-              <span className={`glass-chip text-[11px] ${
-                connectionStatus === 'verified'
-                  ? 'glass-chip-success'
-                  : connectionStatus === 'verify_failed'
-                    ? 'glass-chip-warning'
-                    : 'glass-chip-info'
-              }`}>
-                {t(`connectionStatus.${connectionStatus}`)}
-              </span>
-            </div>
-
-            <div className="rounded-2xl border border-[var(--glass-stroke-base)] bg-[var(--glass-bg-muted)] p-4">
-              <div className="grid gap-4 xl:grid-cols-[1.2fr_1fr]">
-                <div className="space-y-3">
-                  <label className="block text-xs font-medium text-[var(--glass-text-tertiary)]">
-                    {t('tokenLabel')}
-                  </label>
+              <div className="mt-4 space-y-3">
+                <label className="block">
+                  <span className="block text-xs font-medium text-[var(--glass-text-tertiary)]">{t('tokenLabel')}</span>
                   <input
                     type="password"
                     value={apiToken}
                     onChange={(event) => setApiToken(event.target.value)}
                     placeholder={connection?.configured ? t('tokenPlaceholderConfigured', { token: connection.tokenMasked || '' }) : t('tokenPlaceholder')}
                     autoComplete="off"
-                    className="w-full rounded-xl border border-[var(--glass-stroke-base)] bg-[var(--glass-bg-surface)] px-3 py-2 text-sm text-[var(--glass-text-primary)] outline-none transition focus:border-[var(--glass-tone-info-fg)]"
+                    className="mt-2 w-full rounded-xl border border-[var(--glass-stroke-base)] bg-[var(--glass-bg-surface)] px-3 py-2 text-sm text-[var(--glass-text-primary)] outline-none transition focus:border-[var(--glass-tone-info-fg)]"
                   />
-                  <div className="flex flex-wrap gap-2 text-[11px] text-[var(--glass-text-tertiary)]">
-                    <span>{connection?.configured ? t('tokenSaved') : t('tokenNotSaved')}</span>
-                    {tokenUpdatedAt && <span>{t('tokenUpdatedAt', { time: tokenUpdatedAt })}</span>}
-                    {probeAt && <span>{t('lastProbeAt', { time: probeAt })}</span>}
-                  </div>
-                </div>
+                </label>
 
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <label className="block">
-                    <span className="block text-xs font-medium text-[var(--glass-text-tertiary)]">{t('imageUuidLabel')}</span>
-                    <input
-                      type="text"
-                      value={defaultImageUuid}
-                      onChange={(event) => setDefaultImageUuid(event.target.value)}
-                      placeholder={t('imageUuidPlaceholder')}
-                      className="mt-2 w-full rounded-xl border border-[var(--glass-stroke-base)] bg-[var(--glass-bg-surface)] px-3 py-2 text-sm text-[var(--glass-text-primary)] outline-none transition focus:border-[var(--glass-tone-info-fg)]"
-                    />
-                  </label>
-
-                  <div>
-                    <span className="block text-xs font-medium text-[var(--glass-text-tertiary)]">{t('preferredPort')}</span>
-                    <div className="mt-2 grid grid-cols-2 gap-2">
-                      {AUTODL_PORTS.map((port) => (
-                        <button
-                          key={port}
-                          type="button"
-                          onClick={() => setPreferredPort(port)}
-                          className={`rounded-xl border px-3 py-2 text-sm transition ${
-                            preferredPort === port
-                              ? 'border-[var(--glass-tone-info-fg)] bg-[var(--glass-tone-info-bg)]/20 text-[var(--glass-text-primary)]'
-                              : 'border-[var(--glass-stroke-base)] bg-[var(--glass-bg-surface)] text-[var(--glass-text-secondary)]'
-                          }`}
-                        >
-                          {port}
-                        </button>
-                      ))}
+                <details className="rounded-xl border border-[var(--glass-stroke-subtle)] bg-[var(--glass-bg-surface)] px-3 py-2">
+                  <summary className="cursor-pointer text-xs font-medium text-[var(--glass-text-secondary)]">{t('advancedSettings')}</summary>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_180px]">
+                    <label className="block">
+                      <span className="block text-xs font-medium text-[var(--glass-text-tertiary)]">{t('imageUuidLabel')}</span>
+                      <input
+                        type="text"
+                        value={defaultImageUuid}
+                        onChange={(event) => setDefaultImageUuid(event.target.value)}
+                        placeholder={t('imageUuidPlaceholder')}
+                        className="mt-2 w-full rounded-xl border border-[var(--glass-stroke-base)] bg-[var(--glass-bg-muted)] px-3 py-2 text-sm text-[var(--glass-text-primary)] outline-none transition focus:border-[var(--glass-tone-info-fg)]"
+                      />
+                    </label>
+                    <div>
+                      <span className="block text-xs font-medium text-[var(--glass-text-tertiary)]">{t('preferredPort')}</span>
+                      <div className="mt-2 grid grid-cols-2 gap-2">
+                        {AUTODL_PORTS.map((port) => (
+                          <button
+                            key={port}
+                            type="button"
+                            onClick={() => setPreferredPort(port)}
+                            className={`rounded-xl border px-3 py-2 text-sm transition ${
+                              preferredPort === port
+                                ? 'border-[var(--glass-tone-info-fg)] bg-[var(--glass-tone-info-bg)]/20 text-[var(--glass-text-primary)]'
+                                : 'border-[var(--glass-stroke-base)] bg-[var(--glass-bg-muted)] text-[var(--glass-text-secondary)]'
+                            }`}
+                          >
+                            {port}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   </div>
-                </div>
-              </div>
+                </details>
 
-              <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                <div className="min-h-5 text-xs">
-                  {connectionMessage && <span className="text-[var(--glass-tone-success-fg)]">{connectionMessage}</span>}
-                  {connection?.lastProbeMessage && !connectionMessage && (
-                    <span className="text-[var(--glass-text-tertiary)]">{connection.lastProbeMessage}</span>
-                  )}
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={handleTestConnection}
-                    disabled={connectionBusy !== null || (!connection?.configured && !apiToken.trim())}
-                    className="glass-btn-base glass-btn-secondary flex items-center gap-2 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <AppIcon name={connectionBusy === 'test' ? 'loader' : 'refresh'} className={`h-4 w-4 ${connectionBusy === 'test' ? 'animate-spin' : ''}`} />
-                    {connectionBusy === 'test' ? t('testing') : t('testConnection')}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleSaveConnection}
-                    disabled={connectionBusy !== null}
-                    className="glass-btn-base glass-btn-primary flex items-center gap-2 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <AppIcon name={connectionBusy === 'save' ? 'loader' : 'lock'} className={`h-4 w-4 ${connectionBusy === 'save' ? 'animate-spin' : ''}`} />
-                    {connectionBusy === 'save' ? t('saving') : t('saveConnection')}
-                  </button>
-                  {connection?.configured && (
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="text-xs text-[var(--glass-text-tertiary)]">
+                    {connectionMessage && <span className="text-[var(--glass-tone-success-fg)]">{connectionMessage}</span>}
+                    {!connectionMessage && (
+                      <span>
+                        {connection?.configured ? t('tokenSaved') : t('tokenNotSaved')}
+                        {tokenUpdatedAt ? ` · ${t('tokenUpdatedAt', { time: tokenUpdatedAt })}` : ''}
+                        {probeAt ? ` · ${t('lastProbeAt', { time: probeAt })}` : ''}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
-                      onClick={handleDeleteConnection}
-                      disabled={connectionBusy !== null}
-                      className="glass-btn-base glass-btn-secondary flex items-center gap-2 px-3 py-2 text-sm text-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+                      onClick={handleTestConnection}
+                      disabled={connectionBusy !== null || (!connection?.configured && !apiToken.trim())}
+                      className="glass-btn-base glass-btn-secondary flex items-center gap-2 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      <AppIcon name={connectionBusy === 'delete' ? 'loader' : 'trash'} className={`h-4 w-4 ${connectionBusy === 'delete' ? 'animate-spin' : ''}`} />
-                      {connectionBusy === 'delete' ? t('deleting') : t('deleteConnection')}
+                      <AppIcon name={connectionBusy === 'test' ? 'loader' : 'refresh'} className={`h-4 w-4 ${connectionBusy === 'test' ? 'animate-spin' : ''}`} />
+                      {connectionBusy === 'test' ? t('testing') : t('testConnection')}
                     </button>
-                  )}
+                    <button
+                      type="button"
+                      onClick={handleSaveConnection}
+                      disabled={connectionBusy !== null}
+                      className="glass-btn-base glass-btn-primary flex items-center gap-2 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <AppIcon name={connectionBusy === 'save' ? 'loader' : 'lock'} className={`h-4 w-4 ${connectionBusy === 'save' ? 'animate-spin' : ''}`} />
+                      {connectionBusy === 'save' ? t('saving') : t('saveConnection')}
+                    </button>
+                    {connection?.configured && (
+                      <button
+                        type="button"
+                        onClick={handleDeleteConnection}
+                        disabled={connectionBusy !== null}
+                        className="glass-btn-base glass-btn-secondary flex items-center gap-2 px-3 py-2 text-sm text-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <AppIcon name={connectionBusy === 'delete' ? 'loader' : 'trash'} className={`h-4 w-4 ${connectionBusy === 'delete' ? 'animate-spin' : ''}`} />
+                        {connectionBusy === 'delete' ? t('deleting') : t('deleteConnection')}
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
+
+            <aside className="rounded-2xl border border-[var(--glass-stroke-base)] bg-[var(--glass-bg-muted)] p-5">
+              <div className="flex items-center gap-2 text-sm font-semibold text-[var(--glass-text-primary)]">
+                <AppIcon name="badgeCheck" className="h-4 w-4" />
+                {t('simpleRuleTitle')}
+              </div>
+              <div className="mt-4 space-y-3 text-sm text-[var(--glass-text-secondary)]">
+                <div className="flex gap-2">
+                  <AppIcon name="coins" className="mt-0.5 h-4 w-4 text-[var(--glass-text-tertiary)]" />
+                  <span>{t('simpleRuleBilling')}</span>
+                </div>
+                <div className="flex gap-2">
+                  <AppIcon name="link" className="mt-0.5 h-4 w-4 text-[var(--glass-text-tertiary)]" />
+                  <span>{t('simpleRulePlatform')}</span>
+                </div>
+                <div className="flex gap-2">
+                  <AppIcon name="trash" className="mt-0.5 h-4 w-4 text-[var(--glass-text-tertiary)]" />
+                  <span>{t('simpleRuleRelease')}</span>
+                </div>
+              </div>
+            </aside>
           </section>
 
-          <section className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-[var(--glass-text-primary)]">{t('profiles')}</h3>
+          <section className="rounded-2xl border border-[var(--glass-stroke-base)] bg-[var(--glass-bg-muted)] p-5">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2 text-xs font-medium text-[var(--glass-text-tertiary)]">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--glass-tone-info-bg)] text-[var(--glass-tone-info-fg)]">2</span>
+                  {t('stepMachine')}
+                </div>
+                <h3 className="mt-3 text-base font-semibold text-[var(--glass-text-primary)]">{t('profiles')}</h3>
+              </div>
               {loading && <span className="text-xs text-[var(--glass-text-tertiary)]">{tc('loading')}</span>}
             </div>
 
-            <div className="grid gap-3 md:grid-cols-2">
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
               {profiles.map((profile) => {
                 const active = profile.id === selectedProfileId
                 return (
@@ -569,26 +558,18 @@ export function AutoDLTab() {
                     key={profile.id}
                     type="button"
                     onClick={() => setSelectedProfileId(profile.id)}
-                    className={`min-h-[150px] rounded-2xl border p-4 text-left transition-all ${
+                    className={`rounded-xl border p-4 text-left transition-all ${
                       active
                         ? 'border-[var(--glass-tone-info-fg)] bg-[var(--glass-tone-info-bg)]/15'
-                        : 'border-[var(--glass-stroke-base)] bg-[var(--glass-bg-muted)] hover:border-[var(--glass-stroke-strong)]'
+                        : 'border-[var(--glass-stroke-base)] bg-[var(--glass-bg-surface)] hover:border-[var(--glass-stroke-strong)]'
                     }`}
                   >
-                    <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center justify-between gap-3">
                       <div>
-                        <div className="text-lg font-semibold text-[var(--glass-text-primary)]">{profile.displayName}</div>
-                        <div className="mt-1 font-mono text-xs text-[var(--glass-text-tertiary)]">{profile.specId}</div>
+                        <div className="text-base font-semibold text-[var(--glass-text-primary)]">{profile.displayName}</div>
+                        <div className="mt-1 text-xs text-[var(--glass-text-tertiary)]">{profile.purpose}</div>
                       </div>
                       <AppIcon name={active ? 'check' : 'cpu'} className="h-5 w-5 text-[var(--glass-text-tertiary)]" />
-                    </div>
-                    <p className="mt-3 text-sm text-[var(--glass-text-secondary)]">{profile.purpose}</p>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {profile.recommendedUseCases.map((item) => (
-                        <span key={item} className="glass-chip glass-chip-info text-[11px]">
-                          {item}
-                        </span>
-                      ))}
                     </div>
                   </button>
                 )
@@ -596,192 +577,117 @@ export function AutoDLTab() {
             </div>
           </section>
 
-          <section className="space-y-3">
-            <div className="flex items-center justify-between gap-3">
+          <section className="rounded-2xl border border-[var(--glass-stroke-base)] bg-[var(--glass-bg-muted)] p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h3 className="text-sm font-semibold text-[var(--glass-text-primary)]">{t('instancesTitle')}</h3>
-                <p className="mt-1 text-xs text-[var(--glass-text-tertiary)]">{t('instancesDescription')}</p>
+                <div className="flex items-center gap-2 text-xs font-medium text-[var(--glass-text-tertiary)]">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--glass-tone-info-bg)] text-[var(--glass-tone-info-fg)]">3</span>
+                  {t('stepLaunch')}
+                </div>
+                <h3 className="mt-3 text-base font-semibold text-[var(--glass-text-primary)]">{t('instancesTitle')}</h3>
+                <p className="mt-1 text-xs text-[var(--glass-text-tertiary)]">
+                  {selectedProfile ? t('selectedMachine', { profile: selectedProfile.displayName }) : t('instancesDescription')}
+                </p>
               </div>
               <button
                 type="button"
                 onClick={handleStartSession}
-                disabled={sessionBusy !== null || !connection?.configured || !(defaultImageUuid.trim() || connection?.defaultImageUuid)}
-                className="glass-btn-base glass-btn-primary flex items-center gap-2 px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={!canStartSession}
+                className="glass-btn-base glass-btn-primary flex items-center gap-2 px-4 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <AppIcon name={sessionBusy === 'start' ? 'loader' : 'play'} className={`h-4 w-4 ${sessionBusy === 'start' ? 'animate-spin' : ''}`} />
                 {sessionBusy === 'start' ? t('starting') : t('startInstance')}
               </button>
             </div>
 
-            <div className="rounded-2xl border border-[var(--glass-stroke-base)] bg-[var(--glass-bg-muted)] p-4">
-              <div className="grid gap-3 md:grid-cols-[1fr_1fr]">
-                <label className="block">
-                  <span className="block text-xs font-medium text-[var(--glass-text-tertiary)]">{t('modelBundleLabel')}</span>
-                  <select
-                    value={selectedModelBundle}
-                    onChange={(event) => setSelectedModelBundle(event.target.value)}
-                    className="mt-2 w-full rounded-xl border border-[var(--glass-stroke-base)] bg-[var(--glass-bg-surface)] px-3 py-2 text-sm text-[var(--glass-text-primary)] outline-none transition focus:border-[var(--glass-tone-info-fg)]"
-                  >
-                    <option value={DEFAULT_MODEL_BUNDLE}>{t('modelBundleDefault')}</option>
-                    {models.map((model) => (
-                      <option key={model.id} value={model.id}>
-                        {model.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <div className="rounded-xl border border-[var(--glass-stroke-subtle)] bg-[var(--glass-bg-surface)] px-3 py-2">
-                  <div className="text-xs font-medium text-[var(--glass-text-tertiary)]">{t('startCommandHintTitle')}</div>
-                  <p className="mt-1 text-xs leading-relaxed text-[var(--glass-text-secondary)]">{t('startCommandHint')}</p>
-                </div>
-              </div>
-
-              <div className="mt-4 min-h-5 text-xs">
-                {sessionMessage && <span className="text-[var(--glass-tone-success-fg)]">{sessionMessage}</span>}
-              </div>
-
-              <div className="mt-4 space-y-3">
-                {sessions.map((session) => {
-                  const busyPrefix = `${session.id}:`
-                  const isBusy = sessionBusy?.startsWith(busyPrefix) || false
-                  const canOperate = session.status !== 'released'
-                  return (
-                    <div key={session.id} className="rounded-xl border border-[var(--glass-stroke-subtle)] bg-[var(--glass-bg-surface)] p-3">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-sm font-semibold text-[var(--glass-text-primary)]">
-                              {session.modelBundle || t('modelBundleDefault')}
-                            </span>
-                            <span className={`glass-chip text-[10px] ${getSessionStatusClass(session.status)}`}>
-                              {t(`sessionStatus.${session.status}`)}
-                            </span>
-                          </div>
-                          <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-[var(--glass-text-tertiary)]">
-                            <span>{session.profileId}</span>
-                            {session.instanceUuid && <span className="font-mono">{session.instanceUuid}</span>}
-                            <span>{t('paygPrice', { price: formatPaygPrice(session.paygPrice) })}</span>
-                          </div>
-                          {session.workerBaseUrl && (
-                            <a
-                              href={session.workerBaseUrl}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="mt-2 inline-flex max-w-full items-center gap-1 truncate text-xs text-[var(--glass-tone-info-fg)] hover:underline"
-                            >
-                              <AppIcon name="externalLink" className="h-3 w-3 shrink-0" />
-                              <span className="truncate">{session.workerBaseUrl}</span>
-                            </a>
-                          )}
-                        </div>
-
-                        <div className="flex shrink-0 flex-wrap gap-2">
-                          <button
-                            type="button"
-                            onClick={() => handleSessionAction(session.id, 'sync')}
-                            disabled={sessionBusy !== null || !canOperate}
-                            className="glass-btn-base glass-btn-secondary flex items-center gap-2 px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            <AppIcon name={sessionBusy === `${session.id}:sync` ? 'loader' : 'refresh'} className={`h-3.5 w-3.5 ${sessionBusy === `${session.id}:sync` ? 'animate-spin' : ''}`} />
-                            {t('syncSession')}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleSessionAction(session.id, 'power-off')}
-                            disabled={sessionBusy !== null || !canOperate || session.status === 'stopped'}
-                            className="glass-btn-base glass-btn-secondary flex items-center gap-2 px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            <AppIcon name={isBusy && sessionBusy === `${session.id}:power-off` ? 'loader' : 'pause'} className={`h-3.5 w-3.5 ${sessionBusy === `${session.id}:power-off` ? 'animate-spin' : ''}`} />
-                            {t('powerOffSession')}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleSessionAction(session.id, 'release')}
-                            disabled={sessionBusy !== null || !canOperate}
-                            className="glass-btn-base glass-btn-secondary flex items-center gap-2 px-3 py-2 text-xs text-red-500 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            <AppIcon name={sessionBusy === `${session.id}:release` ? 'loader' : 'trash'} className={`h-3.5 w-3.5 ${sessionBusy === `${session.id}:release` ? 'animate-spin' : ''}`} />
-                            {t('releaseSession')}
-                          </button>
-                        </div>
-                      </div>
-                      <div className="mt-2 text-[11px] text-[var(--glass-text-tertiary)]">
-                        {t('sessionUpdatedAt', { time: formatDateTime(session.updatedAt) || '-' })}
-                        {session.autodlStatus ? ` · AutoDL ${session.autodlStatus}` : ''}
-                      </div>
-                    </div>
-                  )
-                })}
-                {sessions.length === 0 && (
-                  <div className="rounded-xl border border-dashed border-[var(--glass-stroke-base)] px-3 py-8 text-center text-xs text-[var(--glass-text-tertiary)]">
-                    {t('noSessions')}
-                  </div>
-                )}
+            <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(220px,0.45fr)]">
+              <label className="block">
+                <span className="block text-xs font-medium text-[var(--glass-text-tertiary)]">{t('modelBundleLabel')}</span>
+                <select
+                  value={selectedModelBundle}
+                  onChange={(event) => setSelectedModelBundle(event.target.value)}
+                  className="mt-2 w-full rounded-xl border border-[var(--glass-stroke-base)] bg-[var(--glass-bg-surface)] px-3 py-2 text-sm text-[var(--glass-text-primary)] outline-none transition focus:border-[var(--glass-tone-info-fg)]"
+                >
+                  <option value={DEFAULT_MODEL_BUNDLE}>{t('modelBundleDefault')}</option>
+                  {models.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.name}
+                    </option>
+                  ))}
+                </select>
+                <span className="mt-2 block text-[11px] text-[var(--glass-text-tertiary)]">
+                  {modelsLoading ? tc('loading') : t('modelCount', { count: models.length })}
+                </span>
+              </label>
+              <div className="rounded-xl border border-[var(--glass-stroke-subtle)] bg-[var(--glass-bg-surface)] px-3 py-2 text-xs leading-relaxed text-[var(--glass-text-secondary)]">
+                {imageReady ? t('readyToStart') : t('imageRequiredInline')}
               </div>
             </div>
-          </section>
 
-          <section className="space-y-3">
-            <h3 className="text-sm font-semibold text-[var(--glass-text-primary)]">{t('connectionModes')}</h3>
-            <div className="grid gap-3 md:grid-cols-2">
-              {connectionModes.map((mode) => (
-                <div key={mode.id} className="rounded-2xl border border-[var(--glass-stroke-base)] bg-[var(--glass-bg-muted)] p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2 text-sm font-semibold text-[var(--glass-text-primary)]">
-                      <AppIcon name={mode.requiresApiKey ? 'lock' : 'link'} className="h-4 w-4" />
-                      {mode.displayName}
-                    </div>
-                    <span className={`glass-chip text-[11px] ${mode.scope === 'self_hosted_only' ? 'glass-chip-warning' : 'glass-chip-success'}`}>
-                      {t(`modeScope.${mode.scope}`)}
-                    </span>
-                  </div>
-                  <p className="mt-3 text-xs leading-relaxed text-[var(--glass-text-secondary)]">
-                    {t(`modeDescription.${mode.id}`)}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-[var(--glass-text-primary)]">
-                {selectedProfile ? t('modelsFor', { profile: selectedProfile.displayName }) : t('models')}
-              </h3>
-              {modelsLoading && <span className="text-xs text-[var(--glass-text-tertiary)]">{tc('loading')}</span>}
+            <div className="mt-4 min-h-5 text-xs">
+              {sessionMessage && <span className="text-[var(--glass-tone-success-fg)]">{sessionMessage}</span>}
             </div>
 
-            <div className="grid gap-3 xl:grid-cols-3">
-              {groupedModels.map((group) => (
-                <div key={group.modality} className="rounded-2xl border border-[var(--glass-stroke-base)] bg-[var(--glass-bg-muted)] p-4">
-                  <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-[var(--glass-text-primary)]">
-                    <AppIcon
-                      name={group.modality === 'video' ? 'video' : group.modality === 'image' ? 'image' : 'audioWave'}
-                      className="h-4 w-4"
-                    />
-                    {t(`modality.${group.modality}`)}
-                    <span className="text-xs font-normal text-[var(--glass-text-tertiary)]">{group.models.length}</span>
-                  </div>
-                  <div className="space-y-2">
-                    {group.models.map((model) => (
-                      <div key={model.id} className="rounded-xl border border-[var(--glass-stroke-subtle)] bg-[var(--glass-bg-surface)] px-3 py-2">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="min-w-0 truncate text-sm font-medium text-[var(--glass-text-primary)]">{model.name}</span>
-                          <span className={`glass-chip text-[10px] ${model.status === 'experimental' ? 'glass-chip-warning' : 'glass-chip-success'}`}>
-                            {t(`modelStatus.${model.status}`)}
+            <div className="mt-3 space-y-2">
+              {sessions.map((session) => {
+                const canOperate = session.status !== 'released'
+                return (
+                  <div key={session.id} className="rounded-xl border border-[var(--glass-stroke-subtle)] bg-[var(--glass-bg-surface)] p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-semibold text-[var(--glass-text-primary)]">
+                            {session.modelBundle || t('modelBundleDefault')}
+                          </span>
+                          <span className={`glass-chip text-[10px] ${getSessionStatusClass(session.status)}`}>
+                            {t(`sessionStatus.${session.status}`)}
                           </span>
                         </div>
-                        <div className="mt-1 font-mono text-[10px] text-[var(--glass-text-tertiary)]">{model.id}</div>
+                        <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-[var(--glass-text-tertiary)]">
+                          <span>{session.profileId}</span>
+                          <span>{t('paygPrice', { price: formatPaygPrice(session.paygPrice) })}</span>
+                          {session.autodlStatus ? <span>AutoDL {session.autodlStatus}</span> : null}
+                        </div>
                       </div>
-                    ))}
-                    {group.models.length === 0 && (
-                      <div className="rounded-xl border border-dashed border-[var(--glass-stroke-base)] px-3 py-6 text-center text-xs text-[var(--glass-text-tertiary)]">
-                        {t('noModels')}
+
+                      <div className="flex shrink-0 flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleSessionAction(session.id, 'sync')}
+                          disabled={sessionBusy !== null || !canOperate}
+                          className="glass-btn-base glass-btn-secondary flex items-center gap-2 px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <AppIcon name={sessionBusy === `${session.id}:sync` ? 'loader' : 'refresh'} className={`h-3.5 w-3.5 ${sessionBusy === `${session.id}:sync` ? 'animate-spin' : ''}`} />
+                          {t('syncSession')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSessionAction(session.id, 'power-off')}
+                          disabled={sessionBusy !== null || !canOperate || session.status === 'stopped'}
+                          className="glass-btn-base glass-btn-secondary flex items-center gap-2 px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <AppIcon name={sessionBusy === `${session.id}:power-off` ? 'loader' : 'pause'} className={`h-3.5 w-3.5 ${sessionBusy === `${session.id}:power-off` ? 'animate-spin' : ''}`} />
+                          {t('powerOffSession')}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSessionAction(session.id, 'release')}
+                          disabled={sessionBusy !== null || !canOperate}
+                          className="glass-btn-base glass-btn-secondary flex items-center gap-2 px-3 py-2 text-xs text-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <AppIcon name={sessionBusy === `${session.id}:release` ? 'loader' : 'trash'} className={`h-3.5 w-3.5 ${sessionBusy === `${session.id}:release` ? 'animate-spin' : ''}`} />
+                          {t('releaseSession')}
+                        </button>
                       </div>
-                    )}
+                    </div>
                   </div>
+                )
+              })}
+              {sessions.length === 0 && (
+                <div className="rounded-xl border border-dashed border-[var(--glass-stroke-base)] px-3 py-8 text-center text-xs text-[var(--glass-text-tertiary)]">
+                  {t('noSessions')}
                 </div>
-              ))}
+              )}
             </div>
           </section>
         </div>
