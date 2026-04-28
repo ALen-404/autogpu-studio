@@ -13,3 +13,22 @@ export {
   type LocalModelCatalogItem,
   type LocalModelModality,
 } from './catalog'
+export {
+  buildAutoDLConnectionView,
+  decryptAutoDLToken,
+  encryptAutoDLToken,
+  maskAutoDLToken,
+  normalizeAutoDLConnectionInput,
+  normalizeAutoDLPreferredPort,
+  normalizeAutoDLTokenInput,
+  type AutoDLConnectionStatus,
+  type AutoDLConnectionView,
+  type AutoDLPreferredPort,
+  type AutoDLProbeStatus,
+  type NormalizedAutoDLConnectionInput,
+} from './connection'
+export {
+  probeAutoDLToken,
+  type AutoDLProbeResult,
+  type ProbeAutoDLTokenParams,
+} from './client'
