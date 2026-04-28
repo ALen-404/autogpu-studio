@@ -1,46 +1,48 @@
 # AutoGPU Studio
 
-AutoGPU Studio is a source-available derivative of [saturndec/waoowaoo](https://github.com/saturndec/waoowaoo). It explores AutoDL-powered hourly GPU rental, balance-freeze billing, remote GPU workers, and local multimodal model inference for AI video, image, and TTS workflows.
+AutoGPU Studio is a non-commercial source-available derivative of [saturndec/waoowaoo](https://github.com/saturndec/waoowaoo). It explores user-owned AutoDL instances, remote GPU workers, local multimodal model inference, AI video generation, image generation, and TTS workflows.
 
-This repository is currently a product design and engineering starting point. The AutoDL rental workflow is documented but not production-ready yet.
+This project does not charge users, resell AutoDL GPU resources, maintain an in-app wallet, freeze user balance, add a markup, or operate as a commercial SaaS. Any AutoDL cost is paid directly by the user inside their own AutoDL account. AutoGPU Studio only provides open-source orchestration, connection settings, and task routing.
 
 ## Attribution And License
 
 This repository is derived from the original `waoowaoo` project. See [NOTICE.md](./NOTICE.md) for attribution and change notes.
 
-The inherited license is `CC BY-NC-SA 4.0`. It includes NonCommercial and ShareAlike restrictions and is not an OSI-approved software open-source license. Commercial SaaS or paid platform usage requires permission from the upstream rights holder, or a separate commercially usable rewrite.
+The inherited license is `CC BY-NC-SA 4.0`. It includes Attribution, NonCommercial, and ShareAlike restrictions and is not an OSI-approved software open-source license. Non-commercial sharing and modification should keep attribution and the same license. Commercial SaaS, paid hosting, advertising monetization, or paid platform usage requires permission from the upstream rights holder, or a separate commercially usable rewrite.
 
-## Planned Scope
+## Project Scope
 
-- Hourly GPU rental inside the platform.
-- Balance freeze before AutoDL instance creation.
-- AutoDL container instance creation, polling, shutdown, and release.
-- No SSH, JupyterLab, or AutoDL console exposure to end users.
-- Local video, image, and TTS models on rented GPU instances.
-- Generated assets uploaded back to platform storage and project records.
+AutoGPU Studio is designed for individual creators, researchers, and open-source users:
 
-## First Rental Plans
+- Users rent and pay for GPU instances directly on AutoDL, or configure their own AutoDL API Key in a self-hosted deployment.
+- The platform connects only to user-owned instances.
+- The platform does not charge rental fees, maintain balance, freeze funds, or add any markup to AutoDL prices.
+- Users can choose recommended GPU profiles and see compatible local video, image, and TTS models.
+- Remote workers run inside the user's own AutoDL instance and upload generated assets back to the user's configured storage.
+- Task scheduling, status tracking, model catalog, and result persistence reuse the existing project architecture.
 
-| Plan | AutoDL Spec ID | Use Case |
+## AutoDL Integration Modes
+
+### Manual Connection
+
+The user rents, pays for, and starts an instance on AutoDL, then enters the remote Worker URL, port, and access secret in AutoGPU Studio.
+
+This is the safest mode because the platform never touches the user's AutoDL balance or billing flow.
+
+### User-Owned API Key
+
+In a self-hosted deployment, the user may configure their own AutoDL API Key. The system can then create, inspect, stop, and release instances inside that user's AutoDL account.
+
+This is still not resale. Billing remains between the user and AutoDL. API Keys should be held by the user and should not be collected by a public demo service.
+
+## Recommended GPU Profiles
+
+| Profile | AutoDL Spec ID | Use Case |
 | --- | --- | --- |
-| PRO6000 | `pro6000-p` | High-quality video, larger images, high-quality TTS |
+| PRO6000 | `pro6000-p` | High-quality video, large images, high-quality TTS |
 | RTX 5090 | `5090-p` | Fast video, image generation, lightweight TTS |
 
-The current AutoDL account has no enterprise verification, so the first version will not rely on the elastic deployment inventory API. The platform will attempt instance creation after checkout and release frozen balance if creation fails.
-
-## Billing Plan
-
-```text
-Frozen amount = displayed hourly price × rental hours
-```
-
-After AutoDL returns the actual `payg_price`:
-
-```text
-Final charge = AutoDL hourly cost × 1.2 × rental hours
-```
-
-Rental time starts when AutoDL returns the instance ID.
+Availability, region, and actual pricing should come from the AutoDL website or the user's own AutoDL API response. This project only displays recommendations and connection state.
 
 ## Model Catalog Plan
 
@@ -58,9 +60,11 @@ Rental time starts when AutoDL returns the instance ID.
 | TTS | IndexTTS2 | Experimental | Supported |
 | TTS | Fish-Speech | Experimental | Supported |
 
+Every model entry should include its own license notes, VRAM requirements, workflow ID, default parameters, supported resolutions, and recommended GPU profile.
+
 ## Design Document
 
-- [AutoDL rental and multimodal model design](./docs/superpowers/specs/2026-04-28-autodl-rental-design.md)
+- [AutoDL user-owned instance and multimodal model design](./docs/superpowers/specs/2026-04-28-autodl-rental-design.md)
 
 ## Local Development
 
