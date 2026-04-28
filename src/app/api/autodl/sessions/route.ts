@@ -7,6 +7,7 @@ import {
   buildSessionStartCommand,
   createAutoDLInstance,
   decryptAutoDLToken,
+  getAutoDLDefaultImageUuid,
   getAutoDLPublicServerUrl,
   isAutoDLPublicServerUrlReachableFromInstance,
   isAutoDLProfileId,
@@ -93,9 +94,11 @@ export const POST = apiHandler(async (request: NextRequest) => {
     throw new ApiError('MISSING_CONFIG', { message: '请先绑定 AutoDL 开发者 Token' })
   }
 
-  const imageUuid = input.imageUuid || connection.defaultImageUuid || ''
+  const imageUuid = input.imageUuid || connection.defaultImageUuid || getAutoDLDefaultImageUuid(input.profileId) || ''
   if (!imageUuid) {
-    throw new ApiError('MISSING_CONFIG', { message: '请先填写 AutoDL 镜像 UUID' })
+    throw new ApiError('MISSING_CONFIG', {
+      message: '平台还没有配置可启动的 AutoDL 默认镜像，请管理员先在 .env 设置 AUTODL_DEFAULT_IMAGE_UUID，或按档位设置 AUTODL_DEFAULT_IMAGE_UUID_5090_P / AUTODL_DEFAULT_IMAGE_UUID_PRO6000_P',
+    })
   }
 
   const token = decryptAutoDLToken(connection.tokenCiphertext)

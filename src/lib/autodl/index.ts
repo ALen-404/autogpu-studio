@@ -18,6 +18,7 @@ export {
   buildAutoDLWorkerStartCommand,
   decryptAutoDLToken,
   encryptAutoDLToken,
+  getAutoDLDefaultImageUuid,
   maskAutoDLToken,
   normalizeAutoDLConnectionInput,
   normalizeAutoDLPreferredPort,

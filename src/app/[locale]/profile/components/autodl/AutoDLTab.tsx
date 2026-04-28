@@ -32,6 +32,7 @@ interface ProfilesPayload {
   success: boolean
   officialUrl: string
   defaultProfileId: AutoDLProfileId
+  defaultImageReadyByProfile?: Partial<Record<AutoDLProfileId, boolean>>
   profiles: AutoDLProfile[]
 }
 
@@ -117,7 +118,7 @@ export function AutoDLTab() {
   const [sessions, setSessions] = useState<AutoDLSession[]>([])
   const [connection, setConnection] = useState<AutoDLConnection | null>(null)
   const [apiToken, setApiToken] = useState('')
-  const [defaultImageUuid, setDefaultImageUuid] = useState('')
+  const [defaultImageReadyByProfile, setDefaultImageReadyByProfile] = useState<Partial<Record<AutoDLProfileId, boolean>>>({})
   const [preferredPort, setPreferredPort] = useState<AutoDLPreferredPort>(6006)
   const [selectedModelBundle, setSelectedModelBundle] = useState(DEFAULT_MODEL_BUNDLE)
   const [loading, setLoading] = useState(true)
@@ -148,9 +149,9 @@ export function AutoDLTab() {
         if (cancelled) return
         setProfiles(payload.profiles)
         setOfficialUrl(payload.officialUrl || 'https://www.autodl.com/home')
+        setDefaultImageReadyByProfile(payload.defaultImageReadyByProfile || {})
         setConnection(connectionPayload.connection || null)
         setSelectedProfileId(connectionPayload.connection?.defaultProfileId || payload.defaultProfileId || '5090-p')
-        setDefaultImageUuid(connectionPayload.connection?.defaultImageUuid || '')
         setPreferredPort(connectionPayload.connection?.preferredPort || 6006)
         setSessions(Array.isArray(sessionsPayload.sessions) ? sessionsPayload.sessions : [])
       } catch {
@@ -199,7 +200,7 @@ export function AutoDLTab() {
   const selectedBundleName = selectedModelBundle === DEFAULT_MODEL_BUNDLE
     ? t('modelBundleDefault')
     : models.find((model) => model.id === selectedModelBundle)?.name || selectedModelBundle
-  const imageReady = !!(defaultImageUuid.trim() || connection?.defaultImageUuid)
+  const imageReady = !!connection?.defaultImageUuid || !!defaultImageReadyByProfile[selectedProfileId]
   const canStartSession = sessionBusy === null && !!connection?.configured && imageReady
 
   useEffect(() => {
@@ -248,7 +249,6 @@ export function AutoDLTab() {
         body: JSON.stringify({
           ...(apiToken.trim() ? { apiToken: apiToken.trim() } : {}),
           defaultProfileId: selectedProfileId,
-          defaultImageUuid,
           preferredPort,
         }),
       })
@@ -304,7 +304,6 @@ export function AutoDLTab() {
       if (!response.ok || !payload.success) throw new Error('delete')
       setConnection(payload.connection)
       setApiToken('')
-      setDefaultImageUuid('')
       setPreferredPort(6006)
       setConnectionMessage(t('deleteSuccess'))
     } catch {
@@ -320,8 +319,7 @@ export function AutoDLTab() {
       setError(t('startRequiresToken'))
       return
     }
-    const imageUuid = defaultImageUuid.trim() || connection.defaultImageUuid || ''
-    if (!imageUuid) {
+    if (!imageReady) {
       setConnectionMessage(null)
       setError(t('startRequiresImage'))
       return
@@ -336,7 +334,6 @@ export function AutoDLTab() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           profileId: selectedProfileId,
-          imageUuid,
           modelBundle: selectedModelBundle,
           instanceName: `AutoGPU ${selectedBundleName}`,
         }),
@@ -438,16 +435,16 @@ export function AutoDLTab() {
                 <details className="rounded-xl border border-[var(--glass-stroke-subtle)] bg-[var(--glass-bg-surface)] px-3 py-2">
                   <summary className="cursor-pointer text-xs font-medium text-[var(--glass-text-secondary)]">{t('advancedSettings')}</summary>
                   <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_180px]">
-                    <label className="block">
-                      <span className="block text-xs font-medium text-[var(--glass-text-tertiary)]">{t('imageUuidLabel')}</span>
-                      <input
-                        type="text"
-                        value={defaultImageUuid}
-                        onChange={(event) => setDefaultImageUuid(event.target.value)}
-                        placeholder={t('imageUuidPlaceholder')}
-                        className="mt-2 w-full rounded-xl border border-[var(--glass-stroke-base)] bg-[var(--glass-bg-muted)] px-3 py-2 text-sm text-[var(--glass-text-primary)] outline-none transition focus:border-[var(--glass-tone-info-fg)]"
-                      />
-                    </label>
+                    <div className="rounded-xl border border-[var(--glass-stroke-base)] bg-[var(--glass-bg-muted)] px-3 py-2">
+                      <span className="block text-xs font-medium text-[var(--glass-text-tertiary)]">{t('platformImageTitle')}</span>
+                      <span className={`mt-2 inline-flex rounded-full px-2 py-1 text-xs ${
+                        imageReady
+                          ? 'bg-[var(--glass-tone-success-bg)] text-[var(--glass-tone-success-fg)]'
+                          : 'bg-[var(--glass-tone-warning-bg)] text-[var(--glass-tone-warning-fg)]'
+                      }`}>
+                        {imageReady ? t('platformImageReady') : t('platformImageMissing')}
+                      </span>
+                    </div>
                     <div>
                       <span className="block text-xs font-medium text-[var(--glass-text-tertiary)]">{t('preferredPort')}</span>
                       <div className="mt-2 grid grid-cols-2 gap-2">

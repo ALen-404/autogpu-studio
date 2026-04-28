@@ -49,6 +49,18 @@ function readTrimmedString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
 }
 
+const AUTODL_DEFAULT_IMAGE_UUID_ENV_KEYS: Record<AutoDLProfileId, string> = {
+  '5090-p': 'AUTODL_DEFAULT_IMAGE_UUID_5090_P',
+  'pro6000-p': 'AUTODL_DEFAULT_IMAGE_UUID_PRO6000_P',
+}
+
+export function getAutoDLDefaultImageUuid(profileId?: AutoDLProfileId | null): string | null {
+  const profileImageUuid = profileId
+    ? readTrimmedString(process.env[AUTODL_DEFAULT_IMAGE_UUID_ENV_KEYS[profileId]])
+    : ''
+  return profileImageUuid || readTrimmedString(process.env.AUTODL_DEFAULT_IMAGE_UUID) || null
+}
+
 function toIsoString(value: Date | string | null | undefined): string | null {
   if (!value) return null
   if (value instanceof Date) return value.toISOString()
@@ -197,6 +209,7 @@ export function buildAutoDLConnectionView(row: AutoDLConnectionRow | null | unde
   const defaultProfileId = isAutoDLProfileId(row?.defaultProfileId) ? row.defaultProfileId : '5090-p'
   const preferredPort = row?.preferredPort === 6008 ? 6008 : 6006
   const configured = !!row?.tokenCiphertext
+  const defaultImageUuid = readTrimmedString(row?.defaultImageUuid) || getAutoDLDefaultImageUuid(defaultProfileId)
   const status = row?.status === 'verified' || row?.status === 'verify_failed' || row?.status === 'configured'
     ? row.status
     : configured
@@ -211,7 +224,7 @@ export function buildAutoDLConnectionView(row: AutoDLConnectionRow | null | unde
     tokenMasked: row?.tokenLast4 ? `••••${row.tokenLast4}` : null,
     tokenUpdatedAt: toIsoString(row?.tokenUpdatedAt),
     defaultProfileId,
-    defaultImageUuid: row?.defaultImageUuid || null,
+    defaultImageUuid,
     preferredPort,
     status,
     lastProbeStatus,
