@@ -8,6 +8,9 @@
   An AI-powered tool for creating short drama / comic videos — automatically generates storyboards, characters, and scenes from novel text, then assembles them into complete videos.
 </p>
 
+> [!NOTE]
+> **Open-source attribution**: This repository is based on the original project [saturndec/waoowaoo](https://github.com/saturndec/waoowaoo). It keeps the original attribution, license, and upstream link while exploring AutoDL-powered GPU rental, local multimodal model inference, and balance-freeze billing extensions. Please follow the `LICENSE` terms, CC BY-NC-SA 4.0.
+
 <p align="center">
   <a href="README.md">中文文档</a> · <a href="https://www.waoowaoo.com/">Join Waitlist</a> · <a href="https://github.com/saturndec/waoowaoo/issues">Report Bug</a>
 </p>

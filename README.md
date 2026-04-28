@@ -14,6 +14,9 @@
   一款基于 AI 技术的短剧/漫画视频制作工具，支持从小说文本自动生成分镜、角色、场景，并制作成完整视频。
 </p>
 
+> [!NOTE]
+> **开源来源说明**：本仓库基于原项目 [saturndec/waoowaoo](https://github.com/saturndec/waoowaoo) 进行二次开发与方案扩展，保留原项目署名、许可证与上游链接。后续改动会在此基础上探索 AutoDL 自动租机、多模态本地模型推理、站内余额冻结计费等能力。请遵循仓库内 `LICENSE` 的 CC BY-NC-SA 4.0 条款。
+
 <p align="center">
   <a href="README_en.md">English</a> · <a href="https://www.waoowaoo.com/">加入内测候补</a> · <a href="https://github.com/saturndec/waoowaoo/issues">反馈问题</a>
 </p>
