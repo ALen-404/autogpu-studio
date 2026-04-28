@@ -10,6 +10,13 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: process.cwd(),
   },
+  images: {
+    localPatterns: [
+      {
+        pathname: '/**',
+      },
+    ],
+  },
   allowedDevOrigins: [
     'http://192.168.31.218:3000',
     'http://192.168.31.*:3000',
