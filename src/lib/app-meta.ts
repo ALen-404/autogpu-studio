@@ -1,6 +1,6 @@
 import packageJson from '../../package.json'
 
-const GITHUB_REPOSITORY_VALUE = 'saturndec/waoowaoo'
+const GITHUB_REPOSITORY_VALUE = 'ALen-404/autogpu-studio'
 
 const packageVersion = packageJson.version
 if (typeof packageVersion !== 'string' || packageVersion.trim().length === 0) {

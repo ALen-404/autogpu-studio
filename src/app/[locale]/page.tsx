@@ -28,7 +28,7 @@ export default function Home() {
         <div className="flex flex-col items-center gap-4">
           <Image
             src="/logo-small.png?v=1"
-            alt="waoowaoo"
+            alt="AutoGPU Studio"
             width={80}
             height={80}
             className="animate-pulse"

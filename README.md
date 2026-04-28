@@ -1,164 +1,129 @@
-<p align="center">
-  <a href="https://www.waoowaoo.com/">
-    <img src="images/cta-banner.png" alt="🚀 探索 AI 影视的下一代创作流 | 立即加入 waoowaoo 在线网页版内测候补" width="800">
-  </a>
-</p>
+# AutoGPU Studio
 
-<p align="center">
-  <img src="public/banner.png" alt="waoowaoo" width="600">
-</p>
+AutoGPU Studio 是一个基于 `waoowaoo` 二次开发的源码开放项目，目标是在原有 AI 短剧/漫画视频创作流程上，扩展站内余额冻结、AutoDL 自动租机、多模态本地模型推理和远程 GPU Worker 调度能力。
 
-<h1 align="center">waoowaoo AI 影视 Studio</h1>
+当前仓库处于产品设计与工程改造起点阶段。AutoDL 自动租机能力已经形成设计文档，但尚未完成生产实现。
 
-<p align="center">
-  一款基于 AI 技术的短剧/漫画视频制作工具，支持从小说文本自动生成分镜、角色、场景，并制作成完整视频。
-</p>
+## 来源与许可证
 
-> [!NOTE]
-> **开源来源说明**：本仓库基于原项目 [saturndec/waoowaoo](https://github.com/saturndec/waoowaoo) 进行二次开发与方案扩展，保留原项目署名、许可证与上游链接。后续改动会在此基础上探索 AutoDL 自动租机、多模态本地模型推理、站内余额冻结计费等能力。请遵循仓库内 `LICENSE` 的 CC BY-NC-SA 4.0 条款。
+本仓库基于原项目 [saturndec/waoowaoo](https://github.com/saturndec/waoowaoo) 派生，保留上游署名、许可证和来源链接。详细来源说明见 [NOTICE.md](./NOTICE.md)。
 
-<p align="center">
-  <a href="README_en.md">English</a> · <a href="https://www.waoowaoo.com/">加入内测候补</a> · <a href="https://github.com/saturndec/waoowaoo/issues">反馈问题</a>
-</p>
+许可证沿用上游仓库的 `CC BY-NC-SA 4.0`。该许可证包含非商业使用和相同方式共享限制，严格来说不是 OSI 意义上的软件开源许可证。若要把本项目用于商业 SaaS、付费平台或其他商业用途，需要先取得上游权利方授权，或完成不受该许可证约束的可商用重写。
 
-> [!IMPORTANT]
-> ⚠️ **测试版声明**：本项目目前处于测试初期阶段，由于暂时只有我一个人开发，存在部分 bug 和不完善之处。我们正在快速迭代更新中，**欢迎进群反馈问题和需求，及时关注项目更新！目前更新会非常频繁，后续会增加大量新功能以及优化效果，我们的目标是成为行业最强AI工具！**
+## 项目定位
 
-<img src="https://github.com/user-attachments/assets/2b3fc495-9812-493a-8dbc-5bec4757df31" width="30%">
+AutoGPU Studio 面向 AI 影像创作者和平台运营者，计划提供：
 
----
-## ✨ 功能特性
+- 按小时租用 GPU 机器。
+- 使用站内余额冻结保障租机成本。
+- 后台通过 AutoDL 自动创建、查询、关停和释放实例。
+- 用户不接触 SSH、JupyterLab 或 AutoDL 控制台，只在平台内生成内容。
+- 租到机器后使用本地视频、图片和 TTS 模型。
+- 生成结果统一回传平台对象存储，并写入现有项目数据。
 
-- 🎬 **AI 剧本分析** — 自动解析小说，提取角色、场景、剧情
-- 🎨 **角色 & 场景生成** — AI 生成一致性人物和场景图片
-- 📽️ **分镜视频制作** — 自动生成分镜头并合成视频
-- 🎙️ **AI 配音** — 多角色语音合成
-- 🌐 **多语言支持** — 中文 / 英文界面，右上角一键切换
+## 第一版租机范围
 
----
+第一版计划只开放两个后台可配置档位：
 
-## 🚀 快速开始
+| 档位 | AutoDL 规格 ID | 用途 |
+| --- | --- | --- |
+| PRO6000 | `pro6000-p` | 高质量视频、大图和高质量 TTS |
+| RTX 5090 | `5090-p` | 快速视频、图片和轻量 TTS |
 
-**前提条件**：安装 [Docker Desktop](https://docs.docker.com/get-docker/)
+由于当前 AutoDL 账号没有企业认证，第一版不依赖弹性部署库存接口。平台会在用户下单后尝试创建容器实例；创建失败时订单失败并解冻余额。
 
-### 方式一：拉取预构建镜像（最简单）
+## 计费规则规划
 
-无需克隆仓库，下载即用：
+下单时按后台展示价冻结余额：
 
-```bash
-# 下载 docker-compose.yml
-curl -O https://raw.githubusercontent.com/saturndec/waoowaoo/main/docker-compose.yml
-
-# 启动所有服务
-docker compose up -d
+```text
+冻结金额 = 展示小时价 × 租用小时数
 ```
 
-> ⚠️ 当前为测试版，版本间数据库不兼容。升级请先清除旧数据：
+AutoDL 实例创建成功后读取实际 `payg_price`，按 20% 加价结算：
 
-```bash
-docker compose down -v
-docker rmi ghcr.io/saturndec/waoowaoo:latest
-curl -O https://raw.githubusercontent.com/saturndec/waoowaoo/main/docker-compose.yml
-docker compose up -d
+```text
+最终售价 = AutoDL 实际小时成本 × 1.2 × 租用小时数
 ```
 
-> 启动后请**清空浏览器缓存**并重新登录，避免旧版本缓存导致异常。
+租用时间从 AutoDL 返回实例 ID 开始计算，不等待模型服务健康检查。
 
-### 方式二：克隆仓库 + Docker 构建（完全控制）
+## 模型目录规划
+
+模型能力由后台目录控制，用户只能看到当前租用机器支持并允许售卖的模型。
+
+首发候选模型：
+
+| 类型 | 模型 | RTX 5090 | PRO6000 |
+| --- | --- | --- | --- |
+| 视频 | Wan2.2 TI2V 5B | 支持 | 支持 |
+| 视频 | Wan2.2 I2V A14B | 不支持 | 支持 |
+| 视频 | LTX-Video 2B distilled | 支持 | 支持 |
+| 视频 | LTX-Video 13B distilled/fp8 | 待压测 | 支持 |
+| 图片 | FLUX.2 klein 4B | 支持 | 支持 |
+| 图片 | Qwen-Image / Qwen-Image-Edit | 待压测 | 支持 |
+| 图片 | SDXL / SD 3.5 Medium | 支持 | 支持 |
+| 配音 | CosyVoice 3 0.5B | 支持 | 支持 |
+| 配音 | F5-TTS v1 | 支持 | 支持 |
+| 配音 | IndexTTS2 | 实验 | 支持 |
+| 配音 | Fish-Speech | 实验 | 支持 |
+
+每个模型还需要在后台配置许可证说明、显存要求、工作流 ID、默认参数、支持分辨率和是否可商用。
+
+## 设计文档
+
+- [AutoDL 自动租机与多模态模型设计](./docs/superpowers/specs/2026-04-28-autodl-rental-design.md)
+
+## 本地开发
+
+前提条件：
+
+- Node.js 18.18 或更高版本。
+- npm 9 或更高版本。
+- Docker Desktop。
+
+启动步骤：
 
 ```bash
-git clone https://github.com/saturndec/waoowaoo.git
-cd waoowaoo
-docker compose up -d
-```
+git clone https://github.com/ALen-404/autogpu-studio.git
+cd autogpu-studio
 
-更新版本：
-```bash
-git pull
-docker compose down && docker compose up -d --build
-```
-
-### 方式三：本地开发模式（开发者）
-
-```bash
-git clone https://github.com/saturndec/waoowaoo.git
-cd waoowaoo
-
-# 复制环境变量配置文件（必须在 npm install 之前完成）
 cp .env.example .env
-# ⚠️ 编辑 .env，填入你的 AI API Key（NEXTAUTH_URL 默认已是 http://localhost:3000，无需修改）
-
 npm install
 
-# 只启动基础设施
-# 注意：docker-compose.yml 将服务映射到非标准端口，.env.example 已按此预设
-mysql:13306  redis:16379  minio:19000
 docker compose up mysql redis minio -d
-
-# 初始化数据库表结构（首次必须执行，跳过会导致启动后报错）
 npx prisma db push
 
-# 启动开发服务器
 npm run dev
 ```
 
-> [!WARNING]
-> 跳过 `npx prisma db push` 会导致所有数据库表不存在，启动后报错 `The table 'tasks' does not exist`。请务必先运行此命令再启动开发服务器。
+开发服务默认访问：
 
----
+- 应用：http://localhost:3000
+- Docker 模式应用：http://localhost:13000
 
-访问 [http://localhost:13000](http://localhost:13000)（方式一、二）或 [http://localhost:3000](http://localhost:3000)（方式三）开始使用！
+## 技术栈
 
-> 首次启动会自动完成数据库初始化，无需任何额外配置。
+- Next.js 15
+- React 19
+- TypeScript
+- Prisma
+- MySQL
+- Redis
+- BullMQ
+- MinIO / S3 兼容对象存储
+- NextAuth.js
 
-> [!TIP]
-> **如果遇到网页卡顿**：HTTP 模式下浏览器可能限制并发连接。可安装 [Caddy](https://caddyserver.com/docs/install) 启用 HTTPS：
-> ```bash
-> caddy run --config Caddyfile
-> ```
-> 然后访问 [https://localhost:1443](https://localhost:1443)
+## 后续工程任务
 
----
+- 增加 AutoDL API 客户端。
+- 增加 GPU 租机套餐和订单表。
+- 接入余额冻结、结算和失败补偿。
+- 增加远程 Worker 签名调用协议。
+- 增加本地模型目录和可售模型过滤。
+- 将视频、图片和 TTS 任务路由到用户专属实例。
+- 增加实例到期回收和异常释放任务。
 
-## 🔧 API 配置
+## 许可证
 
-启动后进入**设置中心**配置 AI 服务的 API Key，内置配置教程。
-
-> 💡 **注意**：目前仅推荐使用各服务商官方 API，第三方兼容格式（OpenAI Compatible）尚不完善，后续版本会持续优化。
-
----
-
-## 📦 技术栈
-
-- **框架**: Next.js 15 + React 19
-- **数据库**: MySQL + Prisma ORM
-- **队列**: Redis + BullMQ
-- **样式**: Tailwind CSS v4
-- **认证**: NextAuth.js
-
----
-
-## 📦 页面功能预览
-
-![4f7b913264f7f26438c12560340e958c67fa833a](https://github.com/user-attachments/assets/fa0e9c57-9ea0-4df3-893e-b76c4c9d304b)
-![67509361cbe6809d2496a550de5733b9f99a9702](https://github.com/user-attachments/assets/f2fb6a64-5ba8-4896-a064-be0ded213e42)
-![466e13c8fd1fc799d8f588c367ebfa24e1e99bf7](https://github.com/user-attachments/assets/09bbff39-e535-4c67-80a9-69421c3b05ee)
-![c067c197c20b0f1de456357c49cdf0b0973c9b31](https://github.com/user-attachments/assets/688e3147-6e95-43b0-b9e7-dd9af40db8a0)
-
----
-
-## 🤝 参与方式
-
-本项目由核心团队独立维护。欢迎你通过以下方式参与：
-
-- 🐛 提交 [Issue](https://github.com/saturndec/waoowaoo/issues) 反馈 Bug
-- 💡 提交 [Issue](https://github.com/saturndec/waoowaoo/issues) 提出功能建议
-- 🔧 提交 Pull Request 供参考 — 我们会认真审阅每一个 PR 的思路，但最终由团队自行实现修复，不会直接合并外部 PR
-
----
-
-**Made with ❤️ by waoowaoo team**
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=saturndec/waoowaoo&type=date&legend=top-left)](https://www.star-history.com/#saturndec/waoowaoo&type=date&legend=top-left)
+本仓库沿用 `CC BY-NC-SA 4.0`。请阅读 [LICENSE](./LICENSE) 和 [NOTICE.md](./NOTICE.md) 后再使用、分发或改造本项目。

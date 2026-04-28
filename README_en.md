@@ -1,152 +1,94 @@
-<p align="center">
-  <img src="public/banner.png" alt="waoowaoo" width="600">
-</p>
+# AutoGPU Studio
 
-<h1 align="center">waoowaoo AI Video Studio</h1>
+AutoGPU Studio is a source-available derivative of [saturndec/waoowaoo](https://github.com/saturndec/waoowaoo). It explores AutoDL-powered hourly GPU rental, balance-freeze billing, remote GPU workers, and local multimodal model inference for AI video, image, and TTS workflows.
 
-<p align="center">
-  An AI-powered tool for creating short drama / comic videos — automatically generates storyboards, characters, and scenes from novel text, then assembles them into complete videos.
-</p>
+This repository is currently a product design and engineering starting point. The AutoDL rental workflow is documented but not production-ready yet.
 
-> [!NOTE]
-> **Open-source attribution**: This repository is based on the original project [saturndec/waoowaoo](https://github.com/saturndec/waoowaoo). It keeps the original attribution, license, and upstream link while exploring AutoDL-powered GPU rental, local multimodal model inference, and balance-freeze billing extensions. Please follow the `LICENSE` terms, CC BY-NC-SA 4.0.
+## Attribution And License
 
-<p align="center">
-  <a href="README.md">中文文档</a> · <a href="https://www.waoowaoo.com/">Join Waitlist</a> · <a href="https://github.com/saturndec/waoowaoo/issues">Report Bug</a>
-</p>
+This repository is derived from the original `waoowaoo` project. See [NOTICE.md](./NOTICE.md) for attribution and change notes.
 
-> [!IMPORTANT]
-> **Beta Notice**: This project is currently in its early beta stage. As it is currently a solo-developed project, some bugs and imperfections are to be expected. We are iterating rapidly — please stay tuned for frequent updates! We are committed to rolling out a massive roadmap of new features and optimizations, with the ultimate goal of becoming the top-tier solution in the industry. Your feedback and feature requests are highly welcome!
+The inherited license is `CC BY-NC-SA 4.0`. It includes NonCommercial and ShareAlike restrictions and is not an OSI-approved software open-source license. Commercial SaaS or paid platform usage requires permission from the upstream rights holder, or a separate commercially usable rewrite.
 
----
+## Planned Scope
 
-## ✨ Features
+- Hourly GPU rental inside the platform.
+- Balance freeze before AutoDL instance creation.
+- AutoDL container instance creation, polling, shutdown, and release.
+- No SSH, JupyterLab, or AutoDL console exposure to end users.
+- Local video, image, and TTS models on rented GPU instances.
+- Generated assets uploaded back to platform storage and project records.
 
-- 🎬 **AI Script Analysis** — Parse novels, extract characters, scenes & plot automatically
-- 🎨 **Character & Scene Generation** — Consistent AI-generated character and scene images
-- 📽️ **Storyboard Video** — Auto-generate shots and compose into complete videos
-- 🎙️ **AI Voiceover** — Multi-character voice synthesis
-- 🌐 **Bilingual UI** — Chinese / English, switch in the top-right corner
+## First Rental Plans
 
----
+| Plan | AutoDL Spec ID | Use Case |
+| --- | --- | --- |
+| PRO6000 | `pro6000-p` | High-quality video, larger images, high-quality TTS |
+| RTX 5090 | `5090-p` | Fast video, image generation, lightweight TTS |
 
-## 🚀 Quick Start
+The current AutoDL account has no enterprise verification, so the first version will not rely on the elastic deployment inventory API. The platform will attempt instance creation after checkout and release frozen balance if creation fails.
 
-**Prerequisites**: Install [Docker Desktop](https://docs.docker.com/get-docker/)
+## Billing Plan
 
-### Method 1: Pull Pre-built Image (Easiest)
-
-No need to clone the repository. Just download and run:
-
-```bash
-# Download docker-compose.yml
-curl -O https://raw.githubusercontent.com/saturndec/waoowaoo/main/docker-compose.yml
-
-# Start all services
-docker compose up -d
+```text
+Frozen amount = displayed hourly price × rental hours
 ```
 
-> ⚠️ This is a beta version. Database is not compatible between versions. To upgrade, clear old data first:
+After AutoDL returns the actual `payg_price`:
 
-```bash
-docker compose down -v
-docker rmi ghcr.io/saturndec/waoowaoo:latest
-curl -O https://raw.githubusercontent.com/saturndec/waoowaoo/main/docker-compose.yml
-docker compose up -d
+```text
+Final charge = AutoDL hourly cost × 1.2 × rental hours
 ```
 
-> After starting, please **clear your browser cache** and log in again to avoid issues caused by stale cache.
+Rental time starts when AutoDL returns the instance ID.
 
-### Method 2: Clone & Docker Build (Full Control)
+## Model Catalog Plan
+
+| Type | Model | RTX 5090 | PRO6000 |
+| --- | --- | --- | --- |
+| Video | Wan2.2 TI2V 5B | Supported | Supported |
+| Video | Wan2.2 I2V A14B | Not supported | Supported |
+| Video | LTX-Video 2B distilled | Supported | Supported |
+| Video | LTX-Video 13B distilled/fp8 | Needs testing | Supported |
+| Image | FLUX.2 klein 4B | Supported | Supported |
+| Image | Qwen-Image / Qwen-Image-Edit | Needs testing | Supported |
+| Image | SDXL / SD 3.5 Medium | Supported | Supported |
+| TTS | CosyVoice 3 0.5B | Supported | Supported |
+| TTS | F5-TTS v1 | Supported | Supported |
+| TTS | IndexTTS2 | Experimental | Supported |
+| TTS | Fish-Speech | Experimental | Supported |
+
+## Design Document
+
+- [AutoDL rental and multimodal model design](./docs/superpowers/specs/2026-04-28-autodl-rental-design.md)
+
+## Local Development
 
 ```bash
-git clone https://github.com/saturndec/waoowaoo.git
-cd waoowaoo
-docker compose up -d
-```
+git clone https://github.com/ALen-404/autogpu-studio.git
+cd autogpu-studio
 
-To update:
-```bash
-git pull
-docker compose down && docker compose up -d --build
-```
-
-### Method 3: Local Development (For Developers)
-
-```bash
-git clone https://github.com/saturndec/waoowaoo.git
-cd waoowaoo
-
-# Copy environment config (must be done before npm install)
 cp .env.example .env
-# ⚠️ Edit .env to fill in your AI API Keys (NEXTAUTH_URL defaults to http://localhost:3000, no change needed)
-
 npm install
 
-# Start infrastructure only
 docker compose up mysql redis minio -d
-
-# Run database migration
 npx prisma db push
 
-# Start development server
 npm run dev
 ```
 
----
+## Tech Stack
 
-Visit [http://localhost:13000](http://localhost:13000) (Method 1 & 2) or [http://localhost:3000](http://localhost:3000) (Method 3) to get started!
+- Next.js 15
+- React 19
+- TypeScript
+- Prisma
+- MySQL
+- Redis
+- BullMQ
+- MinIO / S3-compatible storage
+- NextAuth.js
 
-> The database is initialized automatically on first launch — no extra configuration needed.
+## License
 
-> [!TIP]
-> **If you experience lag**: HTTP mode may limit browser connections. Install [Caddy](https://caddyserver.com/docs/install) for HTTPS:
-> ```bash
-> caddy run --config Caddyfile
-> ```
-> Then visit [https://localhost:1443](https://localhost:1443)
-
----
-
-## 🔧 API Configuration
-
-After launching, go to **Settings** to configure your AI service API keys. A built-in guide is provided.
-
-> 💡 **Note**: Currently only official provider APIs are recommended. Third-party compatible formats (OpenAI Compatible) are not yet fully supported and will be improved in future releases.
-
----
-
-## 📦 Tech Stack
-
-- **Framework**: Next.js 15 + React 19
-- **Database**: MySQL + Prisma ORM
-- **Queue**: Redis + BullMQ
-- **Styling**: Tailwind CSS v4
-- **Auth**: NextAuth.js
-
----
-
-## 📦 Preview
-
-![4f7b913264f7f26438c12560340e958c67fa833a](https://github.com/user-attachments/assets/fa0e9c57-9ea0-4df3-893e-b76c4c9d304b)
-![67509361cbe6809d2496a550de5733b9f99a9702](https://github.com/user-attachments/assets/f2fb6a64-5ba8-4896-a064-be0ded213e42)
-![466e13c8fd1fc799d8f588c367ebfa24e1e99bf7](https://github.com/user-attachments/assets/09bbff39-e535-4c67-80a9-69421c3b05ee)
-![c067c197c20b0f1de456357c49cdf0b0973c9b31](https://github.com/user-attachments/assets/688e3147-6e95-43b0-b9e7-dd9af40db8a0)
-
----
-
-## 🤝 Contributing
-
-This project is maintained by the core team. You're welcome to contribute by:
-
-- 🐛 Filing [Issues](https://github.com/saturndec/waoowaoo/issues) — report bugs
-- 💡 Filing [Issues](https://github.com/saturndec/waoowaoo/issues) — propose features
-- 🔧 Submitting Pull Requests as references — we review every PR carefully for ideas, but the team implements fixes internally rather than merging external PRs directly
-
----
-
-**Made with ❤️ by waoowaoo team**
-
-## Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=saturndec/waoowaoo&type=date&legend=top-left)](https://www.star-history.com/#saturndec/waoowaoo&type=date&legend=top-left)
+This repository inherits `CC BY-NC-SA 4.0`. Read [LICENSE](./LICENSE) and [NOTICE.md](./NOTICE.md) before using, distributing, or modifying this project.
