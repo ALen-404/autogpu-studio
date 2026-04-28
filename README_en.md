@@ -14,9 +14,9 @@ The inherited license is `CC BY-NC-SA 4.0`. It includes Attribution, NonCommerci
 
 AutoGPU Studio is designed for individual creators, researchers, and open-source users:
 
-- Users rent and pay for GPU instances directly on AutoDL, or configure their own AutoDL API Key in a self-hosted deployment.
+- Users create and pay for GPU instances directly on AutoDL, or configure their own AutoDL API Key in a self-hosted deployment.
 - The platform connects only to user-owned instances.
-- The platform does not charge rental fees, maintain balance, freeze funds, or add any markup to AutoDL prices.
+- The platform does not charge instance fees, maintain balance, freeze funds, or add any markup to AutoDL prices.
 - Users can choose recommended GPU profiles and see compatible local video, image, and TTS models.
 - Remote workers run inside the user's own AutoDL instance and upload generated assets back to the user's configured storage.
 - Task scheduling, status tracking, model catalog, and result persistence reuse the existing project architecture.
@@ -64,7 +64,7 @@ Every model entry should include its own license notes, VRAM requirements, workf
 
 ## Design Document
 
-- [AutoDL user-owned instance and multimodal model design](./docs/superpowers/specs/2026-04-28-autodl-rental-design.md)
+- [AutoDL user-owned instance and multimodal model design](./docs/superpowers/specs/2026-04-28-autodl-user-owned-instance-design.md)
 
 ## Local Development
 
@@ -80,6 +80,8 @@ npx prisma db push
 
 npm run dev
 ```
+
+Optional AutoDL settings are documented in `.env.example`. For non-commercial self-hosted usage, start with `AUTODL_CONNECTION_MODE=manual`; only personal self-hosted deployments should use `user_api_key`.
 
 ## Tech Stack
 
