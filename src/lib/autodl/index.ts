@@ -15,6 +15,7 @@ export {
 } from './catalog'
 export {
   buildAutoDLConnectionView,
+  buildAutoDLWorkerStartCommand,
   decryptAutoDLToken,
   encryptAutoDLToken,
   maskAutoDLToken,
@@ -25,10 +26,44 @@ export {
   type AutoDLConnectionView,
   type AutoDLPreferredPort,
   type AutoDLProbeStatus,
+  type AutoDLWorkerStartCommandInput,
   type NormalizedAutoDLConnectionInput,
 } from './connection'
 export {
+  createAutoDLInstance,
+  getAutoDLInstanceSnapshot,
+  getAutoDLInstanceStatus,
+  powerOffAutoDLInstance,
   probeAutoDLToken,
+  releaseAutoDLInstance,
+  resolveAutoDLWorkerBaseUrl,
+  type AutoDLActionResult,
+  type AutoDLCreateInstanceParams,
+  type AutoDLCreateInstanceResult,
+  type AutoDLInstanceActionParams,
+  type AutoDLInstanceSnapshot,
   type AutoDLProbeResult,
   type ProbeAutoDLTokenParams,
 } from './client'
+export {
+  buildAutoDLWorkerBootstrapScript,
+  buildAutoDLSessionView,
+  buildSessionStartCommand,
+  createAutoDLWorkerSecret,
+  decryptAutoDLWorkerSecret,
+  getAutoDLPublicServerUrl,
+  isAutoDLPublicServerUrlReachableFromInstance,
+  normalizeAutoDLPaygPrice,
+  probeAutoDLWorkerHealth,
+  resolveAutoDLSessionRuntimeStatus,
+  type AutoDLSessionStatus,
+  type AutoDLSessionView,
+  type BuildAutoDLStartCommandParams,
+} from './session'
+export {
+  buildAutoDLWorkerProviderConfig,
+  upsertAutoDLWorkerProvider,
+  type AutoDLWorkerProviderConfig,
+  type BuildAutoDLWorkerProviderConfigParams,
+  type UpsertAutoDLWorkerProviderParams,
+} from './provider'

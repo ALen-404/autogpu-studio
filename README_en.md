@@ -35,6 +35,8 @@ In a self-hosted deployment, the user may configure their own AutoDL API Key. Th
 
 This is still not resale. Billing remains between the user and AutoDL. API Keys should be held by the user and should not be collected by a public demo service.
 
+Implemented today: users can store their AutoDL developer token encrypted, choose `PRO6000` or `RTX 5090`, select a model bundle, create an AutoDL Pro instance, inject a Worker start command, sync status, power off, and release the instance. Once the Worker health check passes, AutoGPU Studio automatically writes an `openai-compatible` provider and the matching video, image, and TTS models into the user's model configuration.
+
 ## Recommended GPU Profiles
 
 | Profile | AutoDL Spec ID | Use Case |
@@ -61,6 +63,26 @@ Availability, region, and actual pricing should come from the AutoDL website or 
 | TTS | Fish-Speech | Experimental | Supported |
 
 Every model entry should include its own license notes, VRAM requirements, workflow ID, default parameters, supported resolutions, and recommended GPU profile.
+
+## AutoDL Quick Start
+
+Set a public URL in `.env` on the self-hosted server. The AutoDL instance uses it to fetch the Worker bootstrap script:
+
+```bash
+AUTODL_PUBLIC_SERVER_URL=https://cryptotools.bar
+AUTODL_CONNECTION_MODE=user_api_key
+```
+
+Then open “Profile / AutoDL Instance”:
+
+1. Enter your own AutoDL developer token, save it, and test the connection.
+2. Enter a usable AutoDL image UUID. The image should contain the model weights or backend service you want to run.
+3. Select `PRO6000` or `RTX 5090`, then choose the default bundle or a single model bundle.
+4. Click “Start Instance”. The platform creates the instance and injects the Worker start command.
+5. Click “Sync” after the instance boots. If the Worker health check passes, the provider and models are added automatically.
+6. Use “Power Off” or “Release” when finished to avoid continued AutoDL billing.
+
+The built-in bootstrap starts a minimal Worker shell with `/health`, `/v1/models`, `/v1/images/*`, `/v1/videos`, and `/v1/audio/speech`. Real video, image, and TTS inference still requires an AutoDL image that wires those routes to ComfyUI, Diffusers, CosyVoice, F5-TTS, or another backend.
 
 ## Design Document
 

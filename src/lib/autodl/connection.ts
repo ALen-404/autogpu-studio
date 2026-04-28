@@ -12,6 +12,13 @@ export interface NormalizedAutoDLConnectionInput {
   preferredPort?: AutoDLPreferredPort
 }
 
+export interface AutoDLWorkerStartCommandInput {
+  serverUrl: string
+  workerSecret: string
+  preferredPort: AutoDLPreferredPort
+  modelBundle?: string | null
+}
+
 export interface AutoDLConnectionView {
   configured: boolean
   tokenMasked: string | null
@@ -111,6 +118,36 @@ export function encryptAutoDLToken(token: string): { ciphertext: string; last4: 
 
 export function decryptAutoDLToken(ciphertext: string): string {
   return decryptApiKey(ciphertext)
+}
+
+function shellValue(value: string): string {
+  if (/^[A-Za-z0-9._~:/?#\[\]@!$&()*+,;=%-]+$/.test(value)) {
+    return value
+  }
+  return `'${value.replace(/'/g, `'\\''`)}'`
+}
+
+function normalizeServerUrl(value: string): string {
+  const rawUrl = readTrimmedString(value)
+  if (!rawUrl) throw new Error('AUTODL_SERVER_URL_REQUIRED')
+  const parsed = new URL(rawUrl)
+  return parsed.toString().replace(/\/+$/, '')
+}
+
+export function buildAutoDLWorkerStartCommand(input: AutoDLWorkerStartCommandInput): string {
+  const serverUrl = normalizeServerUrl(input.serverUrl)
+  const workerSecret = readTrimmedString(input.workerSecret)
+  if (!workerSecret) throw new Error('AUTODL_WORKER_SECRET_REQUIRED')
+  const modelBundle = readTrimmedString(input.modelBundle) || 'default'
+
+  return [
+    `AUTOGPU_SERVER_URL=${shellValue(serverUrl)}`,
+    `AUTOGPU_WORKER_SECRET=${shellValue(workerSecret)}`,
+    `AUTOGPU_WORKER_PORT=${input.preferredPort}`,
+    `AUTOGPU_MODEL_BUNDLE=${shellValue(modelBundle)}`,
+    'bash -lc',
+    shellValue('curl -fsSL "$AUTOGPU_SERVER_URL/api/autodl/worker/bootstrap" | bash'),
+  ].join(' ')
 }
 
 export function buildAutoDLConnectionView(row: AutoDLConnectionRow | null | undefined): AutoDLConnectionView {

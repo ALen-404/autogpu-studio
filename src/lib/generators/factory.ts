@@ -18,6 +18,7 @@ import {
 } from './image'
 import { GoogleVeoVideoGenerator } from './video/google'
 import { OpenAICompatibleVideoGenerator } from './video'
+import { OpenAICompatibleAudioGenerator } from './audio'
 import { MinimaxVideoGenerator } from './minimax'
 import { ViduVideoGenerator } from './vidu'
 import { getProviderKey } from '@/lib/api-config'
@@ -111,6 +112,8 @@ export function createAudioGenerator(provider: string): AudioGenerator {
             return new BailianAudioGenerator()
         case 'siliconflow':
             return new SiliconFlowAudioGenerator()
+        case 'openai-compatible':
+            return new OpenAICompatibleAudioGenerator(provider)
         default:
             throw new Error(`Unknown audio generator provider: ${provider}`)
     }

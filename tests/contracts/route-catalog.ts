@@ -28,7 +28,14 @@ export type RouteCatalogEntry = {
 
 const ROUTE_FILES = [
   'src/app/api/admin/download-logs/route.ts',
+  'src/app/api/autodl/connection/route.ts',
+  'src/app/api/autodl/connection/test/route.ts',
   'src/app/api/autodl/profiles/route.ts',
+  'src/app/api/autodl/sessions/[sessionId]/power-off/route.ts',
+  'src/app/api/autodl/sessions/[sessionId]/release/route.ts',
+  'src/app/api/autodl/sessions/[sessionId]/sync/route.ts',
+  'src/app/api/autodl/sessions/route.ts',
+  'src/app/api/autodl/worker/bootstrap/route.ts',
   'src/app/api/asset-hub/ai-design-character/route.ts',
   'src/app/api/asset-hub/ai-design-location/route.ts',
   'src/app/api/asset-hub/ai-modify-character/route.ts',
