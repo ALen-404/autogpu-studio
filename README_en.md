@@ -95,6 +95,16 @@ AUTOGPU_TTS_API_URL=http://127.0.0.1:7003/speech
 
 Backends only need to accept JSON and return common fields: images may return `url`, `image_url`, `data[0].url`, or base64; video create should return `id` / `task_id`, the status endpoint should return `status` and `video_url`; TTS may return audio bytes or JSON with `audio_url`.
 
+For the first text-to-image smoke test, you can skip a separate API service and use the Worker built-in Diffusers image backend:
+
+```bash
+AUTOGPU_IMAGE_BACKEND=diffusers
+AUTOGPU_IMAGE_DIFFUSERS_MODEL=/root/autodl-tmp/models/sdxl
+AUTOGPU_IMAGE_DEFAULT_STEPS=28
+```
+
+The AutoDL image should already include `torch`, `diffusers`, `transformers`, `accelerate`, `safetensors`, and the target model weights. If `AUTOGPU_IMAGE_DIFFUSERS_MODEL` is not set, `sdxl-sd35-medium` tries `stabilityai/stable-diffusion-xl-base-1.0`; for other catalog models, map them explicitly with `AUTOGPU_IMAGE_MODEL_FLUX2_KLEIN_4B`, `AUTOGPU_IMAGE_MODEL_QWEN_IMAGE_EDIT`, or `AUTOGPU_IMAGE_MODEL_SDXL_SD35_MEDIUM`.
+
 ## Design Document
 
 - [AutoDL user-owned instance and multimodal model design](./docs/superpowers/specs/2026-04-28-autodl-user-owned-instance-design.md)

@@ -167,6 +167,26 @@ describe('AutoDL 连接配置', () => {
     vi.unstubAllEnvs()
   })
 
+  it('启动命令会注入内置 Diffusers 图片后端配置', () => {
+    vi.stubEnv('AUTOGPU_IMAGE_BACKEND', 'diffusers')
+    vi.stubEnv('AUTOGPU_IMAGE_DIFFUSERS_MODEL', '/root/autodl-tmp/models/sdxl')
+    vi.stubEnv('AUTOGPU_IMAGE_DIFFUSERS_DTYPE', 'float16')
+    vi.stubEnv('AUTOGPU_IMAGE_DEFAULT_STEPS', '24')
+
+    const command = buildAutoDLWorkerStartCommand({
+      serverUrl: 'https://cryptotools.bar',
+      workerSecret: 'secret-123',
+      preferredPort: 6006,
+      modelBundle: 'sdxl-sd35-medium',
+    })
+
+    expect(command).toContain('AUTOGPU_IMAGE_BACKEND=diffusers')
+    expect(command).toContain('AUTOGPU_IMAGE_DIFFUSERS_MODEL=/root/autodl-tmp/models/sdxl')
+    expect(command).toContain('AUTOGPU_IMAGE_DIFFUSERS_DTYPE=float16')
+    expect(command).toContain('AUTOGPU_IMAGE_DEFAULT_STEPS=24')
+    vi.unstubAllEnvs()
+  })
+
   it('按 AutoDL 官方 Pro API 使用 GET 查询实例详情和状态', async () => {
     const fetcher = vi.fn(async (url: string | URL | Request) => {
       const endpoint = String(url)
@@ -305,5 +325,15 @@ describe('AutoDL 连接配置', () => {
     expect(script).toContain('/v1/autogpu/images')
     expect(script).toContain('/v1/autogpu/videos')
     expect(script).toContain('call_direct_backend')
+  })
+
+  it('Worker bootstrap 内置 Diffusers 图片后端入口', () => {
+    const script = buildAutoDLWorkerBootstrapScript()
+
+    expect(script).toContain('AUTOGPU_IMAGE_BACKEND')
+    expect(script).toContain('AUTOGPU_IMAGE_DIFFUSERS_MODEL')
+    expect(script).toContain('call_builtin_image_backend')
+    expect(script).toContain('DiffusionPipeline')
+    expect(script).toContain('backend_dependency_missing')
   })
 })

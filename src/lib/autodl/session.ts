@@ -192,8 +192,11 @@ mkdir -p "$WORKDIR"
 
 cat > "$WORKDIR/worker.py" <<'PY'
 import base64
+import inspect
+import io
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -223,6 +226,12 @@ def selected_models():
     return list(MODEL_CATALOG.values())
 
 TASKS = {}
+IMAGE_PIPELINE = None
+IMAGE_PIPELINE_KEY = ""
+IMAGE_DEVICE = "cpu"
+DEFAULT_IMAGE_MODEL_REFS = {
+    "sdxl-sd35-medium": "stabilityai/stable-diffusion-xl-base-1.0",
+}
 # 支持环境变量：AUTOGPU_IMAGE_API_URL、AUTOGPU_VIDEO_API_URL、AUTOGPU_TTS_API_URL。
 SUPPORTED_BACKEND_ENV_HINTS = (
     "AUTOGPU_IMAGE_API_URL",
@@ -292,6 +301,189 @@ def normalize_binary_payload(content_type, data):
         "_content_type": mime_type,
     }
 
+def image_backend_kind():
+    return os.environ.get("AUTOGPU_IMAGE_BACKEND", "").strip().lower()
+
+def safe_env_suffix(value):
+    return re.sub(r"[^A-Z0-9]+", "_", value.upper()).strip("_")
+
+def read_int_env(name, default_value):
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default_value
+    try:
+        return int(raw)
+    except Exception:
+        return default_value
+
+def read_float_env(name, default_value):
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default_value
+    try:
+        return float(raw)
+    except Exception:
+        return default_value
+
+def clamp_dimension(value):
+    try:
+        parsed = int(value)
+    except Exception:
+        parsed = 1024
+    parsed = max(256, min(parsed, 2048))
+    return max(8, (parsed // 8) * 8)
+
+def resolve_dimensions(payload):
+    width = read_int_env("AUTOGPU_IMAGE_DEFAULT_WIDTH", 1024)
+    height = read_int_env("AUTOGPU_IMAGE_DEFAULT_HEIGHT", 1024)
+    for key in ("size", "resolution"):
+        raw = str(payload.get(key, "") or "").strip().lower()
+        match = re.match(r"^(\d{3,4})\s*[x*]\s*(\d{3,4})$", raw)
+        if match:
+            width = int(match.group(1))
+            height = int(match.group(2))
+            break
+    aspect_ratio = str(payload.get("aspect_ratio", "") or "").strip()
+    match = re.match(r"^(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)$", aspect_ratio)
+    if match and not payload.get("size") and not payload.get("resolution"):
+        ratio_width = float(match.group(1))
+        ratio_height = float(match.group(2))
+        if ratio_width > 0 and ratio_height > 0:
+            pixels = min(read_int_env("AUTOGPU_IMAGE_MAX_PIXELS", 1048576), 4194304)
+            width = int((pixels * ratio_width / ratio_height) ** 0.5)
+            height = int(width * ratio_height / ratio_width)
+    return clamp_dimension(width), clamp_dimension(height)
+
+def resolve_image_model_ref(payload):
+    payload_model = str(payload.get("model", "") or "").strip()
+    if payload_model:
+        mapped = os.environ.get("AUTOGPU_IMAGE_MODEL_" + safe_env_suffix(payload_model), "").strip()
+        if mapped:
+            return mapped
+    configured = os.environ.get("AUTOGPU_IMAGE_DIFFUSERS_MODEL", "").strip()
+    if configured:
+        return configured
+    if payload_model in DEFAULT_IMAGE_MODEL_REFS:
+        return DEFAULT_IMAGE_MODEL_REFS[payload_model]
+    return payload_model
+
+def load_reference_image(value):
+    if not isinstance(value, str) or not value.strip():
+        return None
+    source = value.strip()
+    try:
+        from PIL import Image
+    except Exception as error:
+        raise RuntimeError("backend_dependency_missing: 请在 AutoDL 镜像中安装 pillow") from error
+    if source.startswith("data:"):
+        marker = ";base64,"
+        if marker not in source:
+            return None
+        raw = base64.b64decode(source.split(marker, 1)[1])
+    elif source.startswith("http://") or source.startswith("https://"):
+        with urllib.request.urlopen(source, timeout=60) as response:
+            raw = response.read()
+    elif os.path.exists(source):
+        with open(source, "rb") as file:
+            raw = file.read()
+    else:
+        return None
+    return Image.open(io.BytesIO(raw)).convert("RGB")
+
+def load_image_pipeline(payload):
+    global IMAGE_PIPELINE
+    global IMAGE_PIPELINE_KEY
+    global IMAGE_DEVICE
+    model_ref = resolve_image_model_ref(payload)
+    if not model_ref:
+        raise RuntimeError("AUTOGPU_IMAGE_DIFFUSERS_MODEL_REQUIRED")
+    if IMAGE_PIPELINE is not None and IMAGE_PIPELINE_KEY == model_ref:
+        return IMAGE_PIPELINE
+    try:
+        import torch
+        from diffusers import DiffusionPipeline
+    except Exception as error:
+        raise RuntimeError("backend_dependency_missing: 请在 AutoDL 镜像中安装 torch、diffusers、transformers、accelerate、safetensors") from error
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    dtype_name = os.environ.get("AUTOGPU_IMAGE_DIFFUSERS_DTYPE", "float16").strip().lower()
+    torch_dtype = None
+    if dtype_name == "float16" and device == "cuda":
+        torch_dtype = torch.float16
+    elif dtype_name == "bfloat16" and device == "cuda":
+        torch_dtype = torch.bfloat16
+    local_only = os.environ.get("AUTOGPU_IMAGE_DIFFUSERS_LOCAL_FILES_ONLY", "").strip().lower() in ("1", "true", "yes")
+    kwargs = {}
+    if torch_dtype is not None:
+        kwargs["torch_dtype"] = torch_dtype
+    if local_only:
+        kwargs["local_files_only"] = True
+    pipeline = DiffusionPipeline.from_pretrained(model_ref, **kwargs)
+    if hasattr(pipeline, "to"):
+        pipeline = pipeline.to(device)
+    if hasattr(pipeline, "enable_attention_slicing"):
+        pipeline.enable_attention_slicing()
+    IMAGE_PIPELINE = pipeline
+    IMAGE_PIPELINE_KEY = model_ref
+    IMAGE_DEVICE = device
+    return IMAGE_PIPELINE
+
+def render_pipeline_kwargs(pipeline, payload):
+    prompt = str(payload.get("prompt", "") or "").strip()
+    if not prompt:
+        raise RuntimeError("IMAGE_PROMPT_REQUIRED")
+    width, height = resolve_dimensions(payload)
+    steps = read_int_env("AUTOGPU_IMAGE_DEFAULT_STEPS", 28)
+    guidance_scale = read_float_env("AUTOGPU_IMAGE_DEFAULT_GUIDANCE_SCALE", 3.5)
+    negative_prompt = str(payload.get("negative_prompt", "") or os.environ.get("AUTOGPU_IMAGE_NEGATIVE_PROMPT", "")).strip()
+    seed_raw = payload.get("seed", None)
+    seed = read_int_env("AUTOGPU_IMAGE_SEED", -1)
+    if isinstance(seed_raw, int):
+        seed = seed_raw
+    try:
+        signature = inspect.signature(pipeline.__call__)
+        parameter_names = set(signature.parameters.keys())
+        accepts_kwargs = any(item.kind == inspect.Parameter.VAR_KEYWORD for item in signature.parameters.values())
+    except Exception:
+        parameter_names = set()
+        accepts_kwargs = True
+    candidates = {
+        "prompt": prompt,
+        "negative_prompt": negative_prompt,
+        "num_inference_steps": steps,
+        "guidance_scale": guidance_scale,
+        "width": width,
+        "height": height,
+    }
+    image_source = payload.get("image") or (payload.get("images")[0] if isinstance(payload.get("images"), list) and payload.get("images") else "")
+    reference_image = load_reference_image(image_source)
+    if reference_image is not None:
+        candidates["image"] = reference_image
+    if seed >= 0:
+        try:
+            import torch
+            candidates["generator"] = torch.Generator(device=IMAGE_DEVICE).manual_seed(seed)
+        except Exception:
+            pass
+    return {
+        key: value
+        for key, value in candidates.items()
+        if value not in ("", None) and (accepts_kwargs or key in parameter_names)
+    }
+
+def call_builtin_image_backend(payload):
+    pipeline = load_image_pipeline(payload)
+    result = pipeline(**render_pipeline_kwargs(pipeline, payload))
+    images = getattr(result, "images", None)
+    if not images:
+        raise RuntimeError("图片后端没有返回图片")
+    buffer = io.BytesIO()
+    images[0].save(buffer, format="PNG")
+    data_url = "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
+    return {
+        "created": int(time.time()),
+        "data": [{"url": data_url}],
+    }
+
 def call_direct_backend(kind, payload):
     url = os.environ.get("AUTOGPU_" + kind + "_API_URL", "").strip()
     if url:
@@ -308,6 +500,9 @@ def call_direct_backend(kind, payload):
         if "json" in content_type:
             return json.loads(response_body.decode("utf-8") or "{}")
         return normalize_binary_payload(content_type, response_body)
+
+    if kind == "IMAGE" and image_backend_kind() == "diffusers":
+        return call_builtin_image_backend(payload)
 
     script = backend_script(kind)
     if not os.path.exists(script):
@@ -412,6 +607,8 @@ def fetch_video_status(task_id, stored_task):
     }
 
 def backend_presence(kind):
+    if kind == "IMAGE" and image_backend_kind() == "diffusers":
+        return True
     return bool(os.environ.get("AUTOGPU_" + kind + "_API_URL", "").strip() or os.path.exists(backend_script(kind)))
 
 class WorkerHandler(BaseHTTPRequestHandler):

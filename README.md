@@ -103,6 +103,16 @@ AUTOGPU_TTS_API_URL=http://127.0.0.1:7003/speech
 
 这些后端只需要接受 JSON 请求并返回常见字段即可：图片返回 `url`、`image_url`、`data[0].url` 或 base64；视频创建返回 `id` / `task_id`，状态接口返回 `status` 和 `video_url`；TTS 可以返回音频二进制，也可以返回 JSON 中的 `audio_url`。
 
+如果只想先跑通文生图，不想再起一个单独 API 服务，可以使用 Worker 内置的 Diffusers 图片后端：
+
+```bash
+AUTOGPU_IMAGE_BACKEND=diffusers
+AUTOGPU_IMAGE_DIFFUSERS_MODEL=/root/autodl-tmp/models/sdxl
+AUTOGPU_IMAGE_DEFAULT_STEPS=28
+```
+
+AutoDL 镜像需要提前包含 `torch`、`diffusers`、`transformers`、`accelerate`、`safetensors` 和对应模型权重。没有设置 `AUTOGPU_IMAGE_DIFFUSERS_MODEL` 时，`sdxl-sd35-medium` 会尝试使用 `stabilityai/stable-diffusion-xl-base-1.0`；其他模型建议通过 `AUTOGPU_IMAGE_MODEL_FLUX2_KLEIN_4B`、`AUTOGPU_IMAGE_MODEL_QWEN_IMAGE_EDIT` 或 `AUTOGPU_IMAGE_MODEL_SDXL_SD35_MEDIUM` 显式映射到镜像内路径或模型仓库。
+
 ## 设计文档
 
 - [AutoDL 自带实例与多模态模型设计](./docs/superpowers/specs/2026-04-28-autodl-user-owned-instance-design.md)
