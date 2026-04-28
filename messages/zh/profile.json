@@ -5,6 +5,7 @@
     "openSourceNoBilling": "开源版本，无需计费",
     "frozen": "冻结",
     "totalSpent": "已消费",
+    "autodlNav": "AutoDL 实例",
     "apiConfig": "API 配置",
     "rechargeRecords": "充值记录",
     "billingRecords": "扣费记录",
@@ -105,5 +106,39 @@
         "voice-generate": "配音生成",
         "voice-design": "声音设计",
         "lip-sync": "口型同步"
+    },
+    "autodl": {
+        "title": "AutoDL 自带实例",
+        "subtitle": "连接用户自己的 AutoDL 实例，费用仍由用户和 AutoDL 官方结算。",
+        "officialLink": "AutoDL 官方",
+        "nonCommercial": "项目定位",
+        "userOwned": "用户自有",
+        "pricing": "平台费用",
+        "zeroMarkup": "0% 加价",
+        "mode": "默认模式",
+        "manualFirst": "手动连接",
+        "profiles": "推荐 GPU 档位",
+        "connectionModes": "连接方式",
+        "models": "本地模型目录",
+        "modelsFor": "{profile} 可用模型",
+        "loadFailed": "AutoDL 目录加载失败",
+        "noModels": "当前档位暂无模型",
+        "modeScope": {
+            "public_demo_safe": "演示站可用",
+            "self_hosted_only": "仅自部署"
+        },
+        "modeDescription": {
+            "manual": "用户在 AutoDL 官方创建实例后，把 Worker 地址配置到自部署环境。",
+            "user_api_key": "用户在个人自部署环境中配置自己的 AutoDL API Key。"
+        },
+        "modality": {
+            "video": "视频",
+            "image": "图片",
+            "tts": "TTS"
+        },
+        "modelStatus": {
+            "supported": "支持",
+            "experimental": "实验"
+        }
     }
 }

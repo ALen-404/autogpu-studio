@@ -5,6 +5,7 @@
   "openSourceNoBilling": "Open-source edition, no billing required",
   "frozen": "Frozen",
   "totalSpent": "Total Spent",
+  "autodlNav": "AutoDL Instance",
   "apiConfig": "API Configuration",
   "rechargeRecords": "Recharge Records",
   "billingRecords": "Billing Records",
@@ -105,5 +106,39 @@
     "voice-generate": "Voice Generation",
     "voice-design": "Voice Design",
     "lip-sync": "Lip Sync"
+  },
+  "autodl": {
+    "title": "User-Owned AutoDL Instance",
+    "subtitle": "Connect the user's own AutoDL instance. Billing remains between the user and AutoDL.",
+    "officialLink": "AutoDL",
+    "nonCommercial": "Project Scope",
+    "userOwned": "User Owned",
+    "pricing": "Platform Fee",
+    "zeroMarkup": "0% Markup",
+    "mode": "Default Mode",
+    "manualFirst": "Manual",
+    "profiles": "Recommended GPU Profiles",
+    "connectionModes": "Connection Modes",
+    "models": "Local Model Catalog",
+    "modelsFor": "{profile} Models",
+    "loadFailed": "Failed to load AutoDL catalog",
+    "noModels": "No models for this profile",
+    "modeScope": {
+      "public_demo_safe": "Demo Safe",
+      "self_hosted_only": "Self Hosted"
+    },
+    "modeDescription": {
+      "manual": "The user creates an instance on AutoDL, then configures the Worker URL in their own deployment.",
+      "user_api_key": "The user configures their own AutoDL API Key in a personal self-hosted deployment."
+    },
+    "modality": {
+      "video": "Video",
+      "image": "Image",
+      "tts": "TTS"
+    },
+    "modelStatus": {
+      "supported": "Supported",
+      "experimental": "Experimental"
+    }
   }
 }

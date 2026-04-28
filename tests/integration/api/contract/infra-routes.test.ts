@@ -73,11 +73,72 @@ describe('api contract - infra routes (behavior)', () => {
   it('infra route group exists', () => {
     expect(routes.map((entry) => entry.routeFile)).toEqual(expect.arrayContaining([
       'src/app/api/admin/download-logs/route.ts',
+      'src/app/api/autodl/profiles/route.ts',
       'src/app/api/cos/image/route.ts',
       'src/app/api/files/[...path]/route.ts',
+      'src/app/api/local-models/route.ts',
       'src/app/api/storage/sign/route.ts',
       'src/app/api/system/boot-id/route.ts',
     ]))
+  })
+
+  it('GET /api/autodl/profiles returns non-commercial user-owned AutoDL profiles', async () => {
+    authState.authenticated = true
+    const mod = await import('@/app/api/autodl/profiles/route')
+    const req = buildMockRequest({
+      path: '/api/autodl/profiles',
+      method: 'GET',
+    })
+
+    const res = await mod.GET(req, { params: Promise.resolve({}) })
+    const json = await res.json() as {
+      success: boolean
+      officialUrl: string
+      connectionModes: Array<{ id: string }>
+      profiles: Array<{
+        id: string
+        displayName: string
+        resaleAllowed: boolean
+        billingMode: string
+        priceMarkupPercent: number
+      }>
+    }
+
+    expect(res.status).toBe(200)
+    expect(json.success).toBe(true)
+    expect(json.officialUrl).toBe('https://www.autodl.com/home')
+    expect(json.connectionModes.map((mode) => mode.id)).toEqual(['manual', 'user_api_key'])
+    expect(json.profiles.map((profile) => profile.id)).toEqual(['pro6000-p', '5090-p'])
+    expect(json.profiles.map((profile) => profile.displayName)).toEqual(['PRO6000', 'RTX 5090'])
+    expect(json.profiles.every((profile) => profile.resaleAllowed === false)).toBe(true)
+    expect(json.profiles.every((profile) => profile.billingMode === 'user_owned_autodl_account')).toBe(true)
+    expect(json.profiles.every((profile) => profile.priceMarkupPercent === 0)).toBe(true)
+  })
+
+  it('GET /api/local-models filters local model catalog by AutoDL profile', async () => {
+    authState.authenticated = true
+    const mod = await import('@/app/api/local-models/route')
+    const req = buildMockRequest({
+      path: '/api/local-models?profileId=5090-p',
+      method: 'GET',
+    })
+
+    const res = await mod.GET(req, { params: Promise.resolve({}) })
+    const json = await res.json() as {
+      success: boolean
+      profileId: string
+      models: Array<{ id: string; modality: string; supportedProfileIds: string[] }>
+    }
+
+    expect(res.status).toBe(200)
+    expect(json.success).toBe(true)
+    expect(json.profileId).toBe('5090-p')
+    expect(json.models.length).toBeGreaterThan(0)
+    expect(json.models.every((model) => model.supportedProfileIds.includes('5090-p'))).toBe(true)
+    expect(json.models.some((model) => model.id === 'wan2.2-i2v-a14b')).toBe(false)
+    expect(json.models.some((model) => model.modality === 'video')).toBe(true)
+    expect(json.models.some((model) => model.modality === 'image')).toBe(true)
+    expect(json.models.some((model) => model.modality === 'tts')).toBe(true)
   })
 
   it('GET /api/admin/download-logs rejects unauthenticated requests', async () => {
