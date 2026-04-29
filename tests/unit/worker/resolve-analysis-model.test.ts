@@ -5,10 +5,14 @@ const prismaMock = vi.hoisted(() => ({
     findUnique: vi.fn(),
   },
 }))
+const apiConfigMock = vi.hoisted(() => ({
+  getModelsByType: vi.fn(),
+}))
 
 vi.mock('@/lib/prisma', () => ({
   prisma: prismaMock,
 }))
+vi.mock('@/lib/api-config', () => apiConfigMock)
 
 import { resolveAnalysisModel } from '@/lib/workers/handlers/resolve-analysis-model'
 
@@ -18,6 +22,32 @@ describe('resolveAnalysisModel', () => {
     prismaMock.userPreference.findUnique.mockResolvedValue({
       analysisModel: 'openai-compatible:pref::gpt-4.1-mini',
     })
+    apiConfigMock.getModelsByType.mockResolvedValue([
+      {
+        provider: 'openai-compatible:input',
+        modelId: 'gpt-4.1',
+        modelKey: 'openai-compatible:input::gpt-4.1',
+        type: 'llm',
+        name: 'GPT 4.1',
+        price: 0,
+      },
+      {
+        provider: 'openai-compatible:project',
+        modelId: 'gpt-4.1',
+        modelKey: 'openai-compatible:project::gpt-4.1',
+        type: 'llm',
+        name: 'GPT 4.1',
+        price: 0,
+      },
+      {
+        provider: 'openai-compatible:pref',
+        modelId: 'gpt-4.1-mini',
+        modelKey: 'openai-compatible:pref::gpt-4.1-mini',
+        type: 'llm',
+        name: 'GPT 4.1 Mini',
+        price: 0,
+      },
+    ])
   })
 
   it('uses inputModel override when provided', async () => {
@@ -52,6 +82,53 @@ describe('resolveAnalysisModel', () => {
       where: { userId: 'user-1' },
       select: { analysisModel: true },
     })
+  })
+
+  it('skips stale AutoDL Qwen project model and uses enabled Xiaomi MiMo user default', async () => {
+    prismaMock.userPreference.findUnique.mockResolvedValueOnce({
+      analysisModel: 'openai-compatible:xiaomi-mimo::mimo-v2.5-pro',
+    })
+    apiConfigMock.getModelsByType.mockResolvedValueOnce([
+      {
+        provider: 'openai-compatible:xiaomi-mimo',
+        modelId: 'mimo-v2.5-pro',
+        modelKey: 'openai-compatible:xiaomi-mimo::mimo-v2.5-pro',
+        type: 'llm',
+        name: 'MiMo V2.5 Pro',
+        price: 0,
+      },
+    ])
+
+    const result = await resolveAnalysisModel({
+      userId: 'user-1',
+      projectAnalysisModel: 'openai-compatible:974ffdbd-f182-484c-a9a8-968d4dbe13fe::qwen3-8b-instruct',
+    })
+
+    expect(result).toBe('openai-compatible:xiaomi-mimo::mimo-v2.5-pro')
+  })
+
+  it('falls back to the first enabled llm when saved analysis defaults are stale', async () => {
+    prismaMock.userPreference.findUnique.mockResolvedValueOnce({
+      analysisModel: 'openai-compatible:974ffdbd-f182-484c-a9a8-968d4dbe13fe::qwen3-8b-instruct',
+    })
+    apiConfigMock.getModelsByType.mockResolvedValueOnce([
+      {
+        provider: 'openai-compatible:xiaomi-mimo',
+        modelId: 'mimo-v2.5-pro',
+        modelKey: 'openai-compatible:xiaomi-mimo::mimo-v2.5-pro',
+        type: 'llm',
+        name: 'MiMo V2.5 Pro',
+        price: 0,
+      },
+    ])
+
+    const result = await resolveAnalysisModel({
+      userId: 'user-1',
+      inputModel: 'openai-compatible:974ffdbd-f182-484c-a9a8-968d4dbe13fe::qwen3-8b-instruct',
+      projectAnalysisModel: 'openai-compatible:974ffdbd-f182-484c-a9a8-968d4dbe13fe::qwen3-8b-instruct',
+    })
+
+    expect(result).toBe('openai-compatible:xiaomi-mimo::mimo-v2.5-pro')
   })
 
   it('skips invalid input/project model keys and still falls back to user preference', async () => {
