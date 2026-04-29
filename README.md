@@ -97,6 +97,15 @@ AUTODL_DEFAULT_IMAGE_UUID=base-image-l2t43iu6uk
 
 内置 bootstrap 会启动一个轻量 Worker，提供 `/health`、`/v1/models`、`/v1/chat/completions`、`/v1/autogpu/images`、`/v1/autogpu/videos`、`/v1/autogpu/videos/{task_id}` 和 `/v1/audio/speech`。平台会自动把图片和视频模型注册为这些直接 API 模板，因此生成流程仍然使用平台里的分镜、人物、场景、镜头和提示词数据，不强依赖 ComfyUI。
 
+当前默认本地后端策略：
+
+- 图片：默认走内置 `Diffusers`
+- 视频：默认走内置 `LTX / Wan Diffusers` 异步任务
+- TTS：默认走内置 `F5-TTS`，`CosyVoice` 可通过仓库目录挂载启用
+- 文本分析：建议继续走外部 LLM（例如 MiMo）
+
+Worker 会根据 `/v1/models` 只向平台暴露当前实例里真正可跑的模型，不再把未就绪模型展示成可选项。
+
 如果 AutoDL 镜像里已有推理服务，可以在平台 `.env` 中配置这些地址，创建实例时会自动注入到 AutoDL start command：
 
 ```bash
@@ -109,15 +118,30 @@ AUTOGPU_TTS_API_URL=http://127.0.0.1:7003/speech
 
 这些后端只需要接受 JSON 请求并返回常见字段即可：图片返回 `url`、`image_url`、`data[0].url` 或 base64；视频创建返回 `id` / `task_id`，状态接口返回 `status` 和 `video_url`；文字模型可以返回 OpenAI Chat Completions 格式，也可以返回 `text` / `content` / `answer`；TTS 可以返回音频二进制，也可以返回 JSON 中的 `audio_url`。
 
-如果只想先跑通文生图，不想再起一个单独 API 服务，可以使用 Worker 内置的 Diffusers 图片后端：
+如果不想单独再起图片 / 视频 / TTS API 服务，可以直接使用 Worker 内置后端：
 
 ```bash
 AUTOGPU_IMAGE_BACKEND=diffusers
-AUTOGPU_IMAGE_DIFFUSERS_MODEL=/root/autodl-tmp/models/sdxl
-AUTOGPU_IMAGE_DEFAULT_STEPS=28
+AUTOGPU_VIDEO_BACKEND=auto
+AUTOGPU_TTS_BACKEND=auto
 ```
 
-AutoDL 镜像需要提前包含 `torch`、`diffusers`、`transformers`、`accelerate`、`safetensors` 和对应模型权重。没有设置 `AUTOGPU_IMAGE_DIFFUSERS_MODEL` 时，`sdxl-sd35-medium` 会尝试使用 `stabilityai/stable-diffusion-xl-base-1.0`；其他模型建议通过 `AUTOGPU_IMAGE_MODEL_FLUX2_KLEIN_4B`、`AUTOGPU_IMAGE_MODEL_QWEN_IMAGE_EDIT` 或 `AUTOGPU_IMAGE_MODEL_SDXL_SD35_MEDIUM` 显式映射到镜像内路径或模型仓库。
+首次启动时，Worker 会按后端自动补装常见 Python 依赖。没有设置模型映射时，内置后端会优先尝试这些默认模型仓库：
+
+- `sdxl-sd35-medium` -> `stabilityai/stable-diffusion-xl-base-1.0`
+- `ltx-video-2b-distilled` -> `Lightricks/LTX-Video`
+- `ltx-video-13b-fp8` -> `Lightricks/LTX-Video-0.9.8-13B-distilled`
+- `wan2.2-ti2v-5b` -> `Wan-AI/Wan2.2-TI2V-5B-Diffusers`
+- `wan2.2-i2v-a14b` -> `Wan-AI/Wan2.2-I2V-A14B-Diffusers`
+- `f5-tts-v1` -> `F5TTS_v1_Base`
+
+如果模型已经预置在镜像里，建议把路径写到 `.env` 对应变量里，例如：
+
+```bash
+AUTOGPU_IMAGE_MODEL_FLUX2_KLEIN_4B=/root/autodl-tmp/models/flux2-klein-4b
+AUTOGPU_VIDEO_MODEL_WAN2_2_TI2V_5B=/root/autodl-tmp/models/wan2.2-ti2v-5b
+AUTOGPU_TTS_MODEL_F5_TTS_V1=F5TTS_v1_Base
+```
 
 ## 设计文档
 

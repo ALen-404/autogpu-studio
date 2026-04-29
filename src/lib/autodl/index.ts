@@ -69,6 +69,7 @@ export {
   buildSessionStartCommand,
   createAutoDLWorkerSecret,
   decryptAutoDLWorkerSecret,
+  fetchAutoDLWorkerModelIds,
   getAutoDLPublicServerUrl,
   inferAutoDLModelBundleFromName,
   isAutoDLPublicServerUrlReachableFromInstance,

@@ -43,6 +43,7 @@ export interface BuildAutoDLWorkerProviderConfigParams {
   workerBaseUrl: string
   workerSharedSecretCiphertext: string
   modelBundle?: string | null
+  supportedModelIds?: string[] | null
   backendAvailability?: {
     image?: boolean
     video?: boolean
@@ -262,9 +263,13 @@ export function buildAutoDLWorkerProviderConfig(
   if (!params.workerSharedSecretCiphertext.trim()) throw new Error('AUTODL_WORKER_SECRET_REQUIRED')
 
   const providerId = `openai-compatible:${params.sessionId}`
+  const supportedModelIdSet = Array.isArray(params.supportedModelIds)
+    ? new Set(params.supportedModelIds)
+    : null
   const models = getLocalModelCatalogForBundle(params.profileId, params.modelBundle)
     .filter((model) => model.modality !== 'llm')
     .filter((model) => isModelAllowedByBackend(model, params.backendAvailability))
+    .filter((model) => supportedModelIdSet ? supportedModelIdSet.has(model.id) : true)
     .map((model) => ({
       modelId: model.id,
       modelKey: composeModelKey(providerId, model.id),

@@ -57,7 +57,7 @@ function validateSpeakerVoiceForProvider(
   if (providerKey === 'bailian') {
     const hasUploadedReference =
       !!character?.customVoiceUrl ||
-      (speakerVoice?.provider === 'fal' && !!speakerVoice.audioUrl)
+      (!!speakerVoice && 'audioUrl' in speakerVoice && typeof speakerVoice.audioUrl === 'string' && speakerVoice.audioUrl.length > 0)
     if (hasUploadedReference) {
       return {
         ok: false,

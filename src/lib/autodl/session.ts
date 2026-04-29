@@ -303,6 +303,42 @@ export async function probeAutoDLWorkerHealth(params: {
   return readiness.healthy
 }
 
+export async function fetchAutoDLWorkerModelIds(params: {
+  workerBaseUrl: string
+  workerSecret: string
+  fetcher?: typeof fetch
+  timeoutMs?: number
+}): Promise<string[]> {
+  const workerBaseUrl = params.workerBaseUrl.trim().replace(/\/+$/, '')
+  const workerSecret = params.workerSecret.trim()
+  if (!workerBaseUrl || !workerSecret) return []
+
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), params.timeoutMs || 5000)
+  try {
+    const response = await (params.fetcher || fetch)(`${workerBaseUrl}/v1/models`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${workerSecret}`,
+        'x-autogpu-worker-secret': workerSecret,
+      },
+      signal: controller.signal,
+    })
+    if (!response.ok) return []
+    const payload = await response.json().catch(() => null) as { data?: unknown } | null
+    if (!Array.isArray(payload?.data)) return []
+    return payload.data.flatMap((item) => {
+      if (!item || typeof item !== 'object') return []
+      const id = typeof (item as { id?: unknown }).id === 'string' ? (item as { id: string }).id.trim() : ''
+      return id ? [id] : []
+    })
+  } catch {
+    return []
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
 export function buildAutoDLWorkerBootstrapScript(): string {
   return String.raw`#!/usr/bin/env bash
 set -Eeuo pipefail
@@ -328,6 +364,8 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
+import threading
 import time
 import uuid
 import urllib.request
@@ -351,40 +389,73 @@ MODEL_CATALOG = {
 }
 
 MODEL_BUNDLES = {
-    "starter": ["ltx-video-2b-distilled", "sdxl-sd35-medium", "cosyvoice3-0.5b"],
+    "starter": ["ltx-video-2b-distilled", "sdxl-sd35-medium", "f5-tts-v1"],
     "balanced": ["wan2.2-ti2v-5b", "flux2-klein-4b", "f5-tts-v1"],
-    "advanced": ["wan2.2-i2v-a14b", "ltx-video-13b-fp8", "qwen-image-edit", "indextts2", "fish-speech"],
+    "advanced": ["wan2.2-i2v-a14b", "ltx-video-13b-fp8", "qwen-image-edit", "f5-tts-v1"],
 }
+
+def is_model_supported(model_id):
+    model = MODEL_CATALOG.get(model_id)
+    if not model:
+        return False
+    model_type = model.get("type")
+    if model_type == "image":
+        return image_backend_kind() in ("auto", "diffusers")
+    if model_type == "video":
+        return video_backend_kind() in ("auto", "diffusers") and model_id in DEFAULT_VIDEO_MODEL_REFS
+    if model_type == "audio":
+        return tts_backend_kind() in ("auto", "builtin", "local") and model_id in ("f5-tts-v1", "cosyvoice3-0.5b")
+    if model_type == "llm":
+        return llm_backend_kind() == "transformers"
+    return False
 
 def selected_models():
     bundle = os.environ.get("AUTOGPU_MODEL_BUNDLE", "default").strip()
     if bundle in MODEL_BUNDLES:
-        return [MODEL_CATALOG[model_id] for model_id in MODEL_BUNDLES[bundle] if model_id in MODEL_CATALOG]
-    if bundle and bundle != "default" and bundle in MODEL_CATALOG:
+        return [MODEL_CATALOG[model_id] for model_id in MODEL_BUNDLES[bundle] if is_model_supported(model_id)]
+    if bundle and bundle != "default" and bundle in MODEL_CATALOG and is_model_supported(bundle):
         return [MODEL_CATALOG[bundle]]
-    return list(MODEL_CATALOG.values())
+    return [model for model_id, model in MODEL_CATALOG.items() if is_model_supported(model_id)]
 
 TASKS = {}
 IMAGE_PIPELINE = None
 IMAGE_PIPELINE_KEY = ""
+IMAGE_PIPELINE_MODE = ""
 IMAGE_DEVICE = "cpu"
+VIDEO_PIPELINES = {}
+TTS_MODELS = {}
 LLM_MODEL = None
 LLM_TOKENIZER = None
 LLM_MODEL_KEY = ""
+WORKDIR = os.environ.get("AUTOGPU_WORKER_DIR", "/root/autogpu-worker")
+OUTPUT_DIR = os.path.join(WORKDIR, "outputs")
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 DEFAULT_IMAGE_MODEL_REFS = {
     "sdxl-sd35-medium": "stabilityai/stable-diffusion-xl-base-1.0",
+}
+DEFAULT_VIDEO_MODEL_REFS = {
+    "ltx-video-2b-distilled": "Lightricks/LTX-Video",
+    "ltx-video-13b-fp8": "Lightricks/LTX-Video-0.9.8-13B-distilled",
+    "wan2.2-ti2v-5b": "Wan-AI/Wan2.2-TI2V-5B-Diffusers",
+    "wan2.2-i2v-a14b": "Wan-AI/Wan2.2-I2V-A14B-Diffusers",
 }
 DEFAULT_LLM_MODEL_REFS = {
     "qwen3-8b-instruct": "Qwen/Qwen3-8B",
     "qwen3-32b-instruct": "Qwen/Qwen3-32B",
 }
-# 支持环境变量：AUTOGPU_IMAGE_API_URL、AUTOGPU_VIDEO_API_URL、AUTOGPU_TTS_API_URL、AUTOGPU_LLM_BACKEND。
+DEFAULT_TTS_MODEL_REFS = {
+    "f5-tts-v1": "F5TTS_v1_Base",
+    "cosyvoice3-0.5b": "pretrained_models/Fun-CosyVoice3-0.5B",
+}
+# 支持环境变量：AUTOGPU_IMAGE_API_URL、AUTOGPU_VIDEO_API_URL、AUTOGPU_TTS_API_URL、AUTOGPU_LLM_BACKEND，以及本地 VIDEO/TTS 后端开关。
 SUPPORTED_BACKEND_ENV_HINTS = (
     "AUTOGPU_IMAGE_API_URL",
     "AUTOGPU_VIDEO_API_URL",
     "AUTOGPU_TTS_API_URL",
     "AUTOGPU_LLM_API_URL",
     "AUTOGPU_LLM_BACKEND",
+    "AUTOGPU_VIDEO_BACKEND",
+    "AUTOGPU_TTS_BACKEND",
 )
 
 class BackendMissing(Exception):
@@ -451,7 +522,13 @@ def normalize_binary_payload(content_type, data):
     }
 
 def image_backend_kind():
-    return os.environ.get("AUTOGPU_IMAGE_BACKEND", "").strip().lower()
+    return os.environ.get("AUTOGPU_IMAGE_BACKEND", "diffusers").strip().lower()
+
+def video_backend_kind():
+    return os.environ.get("AUTOGPU_VIDEO_BACKEND", "auto").strip().lower()
+
+def tts_backend_kind():
+    return os.environ.get("AUTOGPU_TTS_BACKEND", "auto").strip().lower()
 
 def llm_backend_kind():
     return os.environ.get("AUTOGPU_LLM_BACKEND", "transformers").strip().lower()
@@ -506,6 +583,134 @@ def resolve_dimensions(payload):
             height = int(width * ratio_height / ratio_width)
     return clamp_dimension(width), clamp_dimension(height)
 
+def round_to_multiple(value, divisor):
+    divisor = max(1, int(divisor))
+    return max(divisor, int(value // divisor) * divisor)
+
+def load_binary_source(value):
+    if not isinstance(value, str) or not value.strip():
+        return None
+    source = value.strip()
+    if source.startswith("data:"):
+        marker = ";base64,"
+        if marker not in source:
+            return None
+        return base64.b64decode(source.split(marker, 1)[1])
+    if source.startswith("http://") or source.startswith("https://"):
+        with urllib.request.urlopen(source, timeout=60) as response:
+            return response.read()
+    if os.path.exists(source):
+        with open(source, "rb") as file:
+            return file.read()
+    return None
+
+def write_source_to_temp_file(source, suffix):
+    raw = load_binary_source(source)
+    if raw is None:
+        return None
+    handle = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+    handle.write(raw)
+    handle.flush()
+    handle.close()
+    return handle.name
+
+def resolve_video_model_ref(payload):
+    payload_model = str(payload.get("model", "") or "").strip()
+    if payload_model:
+        mapped = os.environ.get("AUTOGPU_VIDEO_MODEL_" + safe_env_suffix(payload_model), "").strip()
+        if mapped:
+            return mapped
+    if payload_model in DEFAULT_VIDEO_MODEL_REFS:
+        return DEFAULT_VIDEO_MODEL_REFS[payload_model]
+    return payload_model
+
+def resolve_tts_model_ref(payload):
+    payload_model = str(payload.get("model", "") or "").strip()
+    if payload_model:
+        mapped = os.environ.get("AUTOGPU_TTS_MODEL_" + safe_env_suffix(payload_model), "").strip()
+        if mapped:
+            return mapped
+    if payload_model in DEFAULT_TTS_MODEL_REFS:
+        return DEFAULT_TTS_MODEL_REFS[payload_model]
+    return payload_model
+
+def resolve_video_image_source(payload):
+    image = payload.get("image")
+    if isinstance(image, str) and image.strip():
+        return image.strip()
+    images = payload.get("images")
+    if isinstance(images, list):
+        for item in images:
+            if isinstance(item, str) and item.strip():
+                return item.strip()
+    return ""
+
+def resolve_video_dimensions(payload, default_width=832, default_height=480):
+    width = read_int_env("AUTOGPU_VIDEO_DEFAULT_WIDTH", default_width)
+    height = read_int_env("AUTOGPU_VIDEO_DEFAULT_HEIGHT", default_height)
+    for key in ("size", "resolution"):
+        raw = str(payload.get(key, "") or "").strip().lower()
+        match = re.match(r"^(\d{3,4})\s*[x*]\s*(\d{3,4})$", raw)
+        if match:
+            width = int(match.group(1))
+            height = int(match.group(2))
+            break
+    image_source = resolve_video_image_source(payload)
+    reference_image = load_reference_image(image_source)
+    if reference_image is not None and not payload.get("size") and not payload.get("resolution"):
+        image_width, image_height = reference_image.size
+        max_pixels = 1280 * 720
+        ratio = min(1.0, (max_pixels / float(image_width * image_height)) ** 0.5)
+        width = max(256, int(image_width * ratio))
+        height = max(256, int(image_height * ratio))
+    aspect_ratio = str(payload.get("aspect_ratio", "") or "").strip()
+    match = re.match(r"^(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)$", aspect_ratio)
+    if match and not payload.get("size") and not payload.get("resolution"):
+        ratio_width = float(match.group(1))
+        ratio_height = float(match.group(2))
+        if ratio_width > 0 and ratio_height > 0:
+            pixels = min(width * height, 1280 * 720)
+            width = int((pixels * ratio_width / ratio_height) ** 0.5)
+            height = int(width * ratio_height / ratio_width)
+    return max(256, width), max(256, height)
+
+def resolve_video_fps(payload):
+    raw = payload.get("fps")
+    if isinstance(raw, (int, float)) and raw > 0:
+        return max(8, min(int(raw), 30))
+    return max(8, min(read_int_env("AUTOGPU_VIDEO_DEFAULT_FPS", 16), 30))
+
+def resolve_video_num_frames(payload, fps):
+    raw = payload.get("num_frames")
+    if isinstance(raw, (int, float)) and raw > 0:
+        return max(9, min(int(raw), 161))
+    duration = payload.get("duration")
+    duration_seconds = float(duration) if isinstance(duration, (int, float)) and duration > 0 else float(read_int_env("AUTOGPU_VIDEO_DEFAULT_DURATION_SECONDS", 5))
+    return max(9, min(int(duration_seconds * fps), 161))
+
+def resolve_tts_input_text(payload):
+    text = str(payload.get("input", "") or payload.get("text", "") or "").strip()
+    if not text:
+        raise RuntimeError("TTS_TEXT_REQUIRED")
+    return text
+
+def resolve_tts_reference_audio_source(payload):
+    for key in ("reference_audio_url", "prompt_audio_url", "audio_url"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+def resolve_tts_reference_text(payload):
+    return str(
+        payload.get("reference_text", "")
+        or payload.get("prompt_text", "")
+        or os.environ.get("AUTOGPU_TTS_REFERENCE_TEXT", "")
+    ).strip()
+
+def resolve_tts_instruction(payload):
+    return str(payload.get("instruction", "") or payload.get("emotion_prompt", "") or "").strip()
+
 def resolve_image_model_ref(payload):
     payload_model = str(payload.get("model", "") or "").strip()
     if payload_model:
@@ -522,38 +727,31 @@ def resolve_image_model_ref(payload):
 def load_reference_image(value):
     if not isinstance(value, str) or not value.strip():
         return None
-    source = value.strip()
     try:
         from PIL import Image
     except Exception as error:
         raise RuntimeError("backend_dependency_missing: 请在 AutoDL 镜像中安装 pillow") from error
-    if source.startswith("data:"):
-        marker = ";base64,"
-        if marker not in source:
-            return None
-        raw = base64.b64decode(source.split(marker, 1)[1])
-    elif source.startswith("http://") or source.startswith("https://"):
-        with urllib.request.urlopen(source, timeout=60) as response:
-            raw = response.read()
-    elif os.path.exists(source):
-        with open(source, "rb") as file:
-            raw = file.read()
-    else:
+    raw = load_binary_source(value)
+    if raw is None:
         return None
     return Image.open(io.BytesIO(raw)).convert("RGB")
 
 def load_image_pipeline(payload):
     global IMAGE_PIPELINE
     global IMAGE_PIPELINE_KEY
+    global IMAGE_PIPELINE_MODE
     global IMAGE_DEVICE
     model_ref = resolve_image_model_ref(payload)
     if not model_ref:
         raise RuntimeError("AUTOGPU_IMAGE_DIFFUSERS_MODEL_REQUIRED")
-    if IMAGE_PIPELINE is not None and IMAGE_PIPELINE_KEY == model_ref:
+    reference_image = resolve_video_image_source(payload)
+    pipeline_mode = "image2image" if reference_image else "text2image"
+    pipeline_cache_key = model_ref + "::" + pipeline_mode
+    if IMAGE_PIPELINE is not None and IMAGE_PIPELINE_KEY == pipeline_cache_key:
         return IMAGE_PIPELINE
     try:
         import torch
-        from diffusers import DiffusionPipeline
+        from diffusers import AutoPipelineForImage2Image, AutoPipelineForText2Image, DiffusionPipeline
     except Exception as error:
         raise RuntimeError("backend_dependency_missing: 请在 AutoDL 镜像中安装 torch、diffusers、transformers、accelerate、safetensors") from error
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -569,13 +767,18 @@ def load_image_pipeline(payload):
         kwargs["torch_dtype"] = torch_dtype
     if local_only:
         kwargs["local_files_only"] = True
-    pipeline = DiffusionPipeline.from_pretrained(model_ref, **kwargs)
+    loader = AutoPipelineForImage2Image if pipeline_mode == "image2image" else AutoPipelineForText2Image
+    try:
+        pipeline = loader.from_pretrained(model_ref, **kwargs)
+    except Exception:
+        pipeline = DiffusionPipeline.from_pretrained(model_ref, **kwargs)
     if hasattr(pipeline, "to"):
         pipeline = pipeline.to(device)
     if hasattr(pipeline, "enable_attention_slicing"):
         pipeline.enable_attention_slicing()
     IMAGE_PIPELINE = pipeline
-    IMAGE_PIPELINE_KEY = model_ref
+    IMAGE_PIPELINE_KEY = pipeline_cache_key
+    IMAGE_PIPELINE_MODE = pipeline_mode
     IMAGE_DEVICE = device
     return IMAGE_PIPELINE
 
@@ -785,6 +988,362 @@ def call_builtin_llm_backend(payload):
         }],
     }
 
+def filter_callable_kwargs(callable_obj, candidates):
+    try:
+        signature = inspect.signature(callable_obj)
+        parameter_names = set(signature.parameters.keys())
+        accepts_kwargs = any(item.kind == inspect.Parameter.VAR_KEYWORD for item in signature.parameters.values())
+    except Exception:
+        parameter_names = set()
+        accepts_kwargs = True
+    return {
+        key: value
+        for key, value in candidates.items()
+        if value not in ("", None) and (accepts_kwargs or key in parameter_names)
+    }
+
+def video_torch_dtype_from_env(torch):
+    dtype_name = os.environ.get("AUTOGPU_VIDEO_DTYPE", "bfloat16").strip().lower()
+    if dtype_name == "float16":
+        return torch.float16
+    if dtype_name == "float32":
+        return torch.float32
+    return torch.bfloat16 if hasattr(torch, "bfloat16") else torch.float16
+
+def resolve_video_backend_name(payload):
+    payload_model = str(payload.get("model", "") or "").strip()
+    backend_kind = video_backend_kind()
+    if backend_kind not in ("auto", "diffusers"):
+        return ""
+    if payload_model.startswith("ltx-video-"):
+        return "ltx"
+    if payload_model.startswith("wan2.2-"):
+        return "wan"
+    return ""
+
+def build_video_output_path(task_id):
+    return os.path.join(OUTPUT_DIR, task_id + ".mp4")
+
+def resolve_video_steps(payload):
+    return read_generation_int(payload, "num_inference_steps", "AUTOGPU_VIDEO_DEFAULT_STEPS", 30)
+
+def resolve_video_guidance_scale(payload):
+    return read_generation_float(payload, "guidance_scale", read_float_env("AUTOGPU_VIDEO_DEFAULT_GUIDANCE_SCALE", 4.0))
+
+def render_video_prompt(payload):
+    prompt = str(payload.get("prompt", "") or "").strip()
+    if not prompt:
+        raise RuntimeError("VIDEO_PROMPT_REQUIRED")
+    return prompt
+
+def call_builtin_ltx_video_backend(payload, task_id):
+    model_ref = resolve_video_model_ref(payload)
+    image_source = resolve_video_image_source(payload)
+    pipeline_kind = "condition" if image_source else "text"
+    cache_key = "ltx::" + pipeline_kind + "::" + model_ref
+    cached = VIDEO_PIPELINES.get(cache_key)
+    if cached:
+        pipeline = cached["pipeline"]
+        device = cached["device"]
+    else:
+        try:
+            import torch
+            from diffusers import LTXConditionPipeline, LTXPipeline
+        except Exception as error:
+            raise RuntimeError("backend_dependency_missing: 请在 AutoDL 镜像中安装 torch、diffusers、transformers、accelerate、safetensors、imageio") from error
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        kwargs = {
+            "torch_dtype": video_torch_dtype_from_env(torch),
+        }
+        if os.environ.get("AUTOGPU_VIDEO_LOCAL_FILES_ONLY", "").strip().lower() in ("1", "true", "yes"):
+            kwargs["local_files_only"] = True
+        loader = LTXConditionPipeline if image_source else LTXPipeline
+        pipeline = loader.from_pretrained(model_ref, **kwargs)
+        if torch.cuda.is_available() and hasattr(pipeline, "to"):
+            pipeline = pipeline.to(device)
+        elif hasattr(pipeline, "to"):
+            pipeline = pipeline.to("cpu")
+        if hasattr(pipeline, "enable_attention_slicing"):
+            pipeline.enable_attention_slicing()
+        VIDEO_PIPELINES[cache_key] = {
+            "pipeline": pipeline,
+            "device": device,
+        }
+    try:
+        import torch
+        from diffusers.utils import export_to_video
+    except Exception as error:
+        raise RuntimeError("backend_dependency_missing: 请在 AutoDL 镜像中安装 torch、diffusers、imageio") from error
+    prompt = render_video_prompt(payload)
+    fps = resolve_video_fps(payload)
+    width, height = resolve_video_dimensions(payload, 768, 432)
+    divisor = getattr(pipeline, "vae_spatial_compression_ratio", 32) or 32
+    width = round_to_multiple(width, divisor)
+    height = round_to_multiple(height, divisor)
+    candidates = {
+        "prompt": prompt,
+        "width": width,
+        "height": height,
+        "num_frames": resolve_video_num_frames(payload, fps),
+        "num_inference_steps": resolve_video_steps(payload),
+        "guidance_scale": resolve_video_guidance_scale(payload),
+    }
+    reference_image = load_reference_image(image_source)
+    if reference_image is not None:
+        candidates["image"] = reference_image
+    seed = payload.get("seed")
+    if isinstance(seed, int) and seed >= 0:
+        generator_device = cached["device"] if cached else ("cuda" if torch.cuda.is_available() else "cpu")
+        candidates["generator"] = torch.Generator(device=generator_device).manual_seed(seed)
+    result = pipeline(**filter_callable_kwargs(pipeline.__call__, candidates))
+    frames = getattr(result, "frames", None)
+    if not frames:
+        raise RuntimeError("视频后端没有返回帧数据")
+    output_path = build_video_output_path(task_id)
+    export_to_video(frames[0], output_path, fps=fps)
+    return output_path
+
+def call_builtin_wan_video_backend(payload, task_id):
+    model_ref = resolve_video_model_ref(payload)
+    image_source = resolve_video_image_source(payload)
+    payload_model = str(payload.get("model", "") or "").strip()
+    pipeline_kind = "i2v" if image_source and "i2v" in payload_model else "ti2v"
+    cache_key = "wan::" + pipeline_kind + "::" + model_ref
+    cached = VIDEO_PIPELINES.get(cache_key)
+    if cached:
+        pipeline = cached["pipeline"]
+        device = cached["device"]
+    else:
+        try:
+            import torch
+            from diffusers import AutoencoderKLWan, WanImageToVideoPipeline, WanPipeline
+        except Exception as error:
+            raise RuntimeError("backend_dependency_missing: 请在 AutoDL 镜像中安装 torch、diffusers、transformers、accelerate、safetensors、imageio") from error
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        kwargs = {
+            "torch_dtype": video_torch_dtype_from_env(torch),
+        }
+        if os.environ.get("AUTOGPU_VIDEO_LOCAL_FILES_ONLY", "").strip().lower() in ("1", "true", "yes"):
+            kwargs["local_files_only"] = True
+        vae = AutoencoderKLWan.from_pretrained(model_ref, subfolder="vae", **kwargs)
+        loader = WanImageToVideoPipeline if image_source and "i2v" in payload_model else WanPipeline
+        pipeline = loader.from_pretrained(model_ref, vae=vae, **kwargs)
+        if torch.cuda.is_available() and hasattr(pipeline, "to"):
+            pipeline = pipeline.to(device)
+        elif hasattr(pipeline, "to"):
+            pipeline = pipeline.to("cpu")
+        if hasattr(pipeline, "enable_attention_slicing"):
+            pipeline.enable_attention_slicing()
+        VIDEO_PIPELINES[cache_key] = {
+            "pipeline": pipeline,
+            "device": device,
+        }
+    try:
+        import torch
+        from diffusers.utils import export_to_video
+    except Exception as error:
+        raise RuntimeError("backend_dependency_missing: 请在 AutoDL 镜像中安装 torch、diffusers、imageio") from error
+    prompt = render_video_prompt(payload)
+    fps = resolve_video_fps(payload)
+    width, height = resolve_video_dimensions(payload, 832, 480)
+    width = round_to_multiple(width, 16)
+    height = round_to_multiple(height, 16)
+    candidates = {
+        "prompt": prompt,
+        "negative_prompt": str(payload.get("negative_prompt", "") or os.environ.get("AUTOGPU_VIDEO_NEGATIVE_PROMPT", "")).strip(),
+        "width": width,
+        "height": height,
+        "num_frames": resolve_video_num_frames(payload, fps),
+        "num_inference_steps": resolve_video_steps(payload),
+        "guidance_scale": resolve_video_guidance_scale(payload),
+    }
+    reference_image = load_reference_image(image_source)
+    if reference_image is not None:
+        candidates["image"] = reference_image
+    seed = payload.get("seed")
+    if isinstance(seed, int) and seed >= 0:
+        generator_device = cached["device"] if cached else ("cuda" if torch.cuda.is_available() else "cpu")
+        candidates["generator"] = torch.Generator(device=generator_device).manual_seed(seed)
+    result = pipeline(**filter_callable_kwargs(pipeline.__call__, candidates))
+    frames = getattr(result, "frames", None)
+    if not frames:
+        raise RuntimeError("视频后端没有返回帧数据")
+    output_path = build_video_output_path(task_id)
+    export_to_video(frames[0], output_path, fps=fps)
+    return output_path
+
+def start_builtin_video_task(payload):
+    backend_name = resolve_video_backend_name(payload)
+    if not backend_name:
+        raise BackendMissing("VIDEO")
+    task_id = str(uuid.uuid4())
+    TASKS[task_id] = {
+        "id": task_id,
+        "status": "pending",
+    }
+    def _runner():
+        TASKS[task_id] = {
+            "id": task_id,
+            "status": "running",
+        }
+        try:
+            if backend_name == "ltx":
+                output_path = call_builtin_ltx_video_backend(payload, task_id)
+            else:
+                output_path = call_builtin_wan_video_backend(payload, task_id)
+            TASKS[task_id] = {
+                "id": task_id,
+                "status": "completed",
+                "output_path": output_path,
+            }
+        except Exception as error:
+            TASKS[task_id] = {
+                "id": task_id,
+                "status": "failed",
+                "error": {"message": str(error)},
+            }
+    threading.Thread(target=_runner, daemon=True).start()
+    return TASKS[task_id]
+
+def resolve_tts_backend_name(payload):
+    payload_model = str(payload.get("model", "") or "").strip()
+    backend_kind = tts_backend_kind()
+    if backend_kind not in ("auto", "builtin", "local"):
+        return ""
+    if payload_model == "f5-tts-v1":
+        return "f5-tts"
+    if payload_model == "cosyvoice3-0.5b":
+        return "cosyvoice"
+    return ""
+
+def extract_first_audio_file(root_dir):
+    candidates = []
+    for root, _, files in os.walk(root_dir):
+        for name in files:
+            if name.lower().endswith((".wav", ".mp3", ".flac", ".ogg", ".m4a")):
+                full_path = os.path.join(root, name)
+                candidates.append((os.path.getmtime(full_path), full_path))
+    if not candidates:
+        return None
+    candidates.sort(reverse=True)
+    return candidates[0][1]
+
+def call_builtin_f5_tts_backend(payload):
+    try:
+        import shutil
+    except Exception as error:
+        raise RuntimeError("backend_dependency_missing: Python 缺少 shutil") from error
+    command = shutil.which("f5-tts_infer-cli")
+    if not command:
+        raise RuntimeError("backend_dependency_missing: 请在 AutoDL 镜像中安装 f5-tts")
+    input_text = resolve_tts_input_text(payload)
+    reference_audio_source = resolve_tts_reference_audio_source(payload)
+    if not reference_audio_source:
+        raise RuntimeError("TTS_REFERENCE_AUDIO_REQUIRED")
+    reference_audio_path = write_source_to_temp_file(reference_audio_source, ".wav")
+    if not reference_audio_path:
+        raise RuntimeError("TTS_REFERENCE_AUDIO_INVALID")
+    temp_dir = tempfile.mkdtemp(prefix="autogpu-f5-")
+    model_ref = resolve_tts_model_ref(payload) or DEFAULT_TTS_MODEL_REFS["f5-tts-v1"]
+    reference_text = resolve_tts_reference_text(payload)
+    command_args = [
+        command,
+        "--model",
+        model_ref,
+        "--ref_audio",
+        reference_audio_path,
+        "--gen_text",
+        input_text,
+    ]
+    if reference_text:
+        command_args.extend(["--ref_text", reference_text])
+    completed = subprocess.run(
+        command_args,
+        cwd=temp_dir,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=backend_timeout("TTS"),
+    )
+    if completed.returncode != 0:
+        raise RuntimeError((completed.stderr or completed.stdout or "f5-tts failed")[-600:])
+    output_file = extract_first_audio_file(temp_dir)
+    if not output_file:
+        raise RuntimeError("F5_TTS_OUTPUT_MISSING")
+    with open(output_file, "rb") as file:
+        return normalize_binary_payload("audio/wav", file.read())
+
+def load_cosyvoice_model(payload):
+    model_ref = resolve_tts_model_ref(payload) or DEFAULT_TTS_MODEL_REFS["cosyvoice3-0.5b"]
+    cache_key = "cosyvoice::" + model_ref
+    if cache_key in TTS_MODELS:
+        return TTS_MODELS[cache_key]
+    repo_dir = os.environ.get("AUTOGPU_TTS_COSYVOICE_REPO_DIR", "").strip()
+    if repo_dir and os.path.isdir(repo_dir):
+        if repo_dir not in sys.path:
+            sys.path.insert(0, repo_dir)
+        matcha_dir = os.path.join(repo_dir, "third_party", "Matcha-TTS")
+        if os.path.isdir(matcha_dir) and matcha_dir not in sys.path:
+            sys.path.insert(0, matcha_dir)
+    try:
+        from cosyvoice.cli.cosyvoice import AutoModel
+    except Exception as error:
+        raise RuntimeError("backend_dependency_missing: 请在 AutoDL 镜像中安装或挂载 CosyVoice") from error
+    model = AutoModel(model_dir=model_ref)
+    TTS_MODELS[cache_key] = model
+    return model
+
+def call_builtin_cosyvoice_backend(payload):
+    model = load_cosyvoice_model(payload)
+    input_text = resolve_tts_input_text(payload)
+    reference_audio_source = resolve_tts_reference_audio_source(payload)
+    if not reference_audio_source:
+        raise RuntimeError("TTS_REFERENCE_AUDIO_REQUIRED")
+    reference_audio_path = write_source_to_temp_file(reference_audio_source, ".wav")
+    if not reference_audio_path:
+        raise RuntimeError("TTS_REFERENCE_AUDIO_INVALID")
+    instruction = resolve_tts_instruction(payload)
+    reference_text = resolve_tts_reference_text(payload)
+    try:
+        if instruction and hasattr(model, "inference_instruct2"):
+            output = model.inference_instruct2(input_text, instruction, prompt_audio_16k=reference_audio_path, stream=False)
+        elif hasattr(model, "inference_cross_lingual"):
+            output = model.inference_cross_lingual(input_text, prompt_audio_16k=reference_audio_path, stream=False)
+        elif hasattr(model, "inference_zero_shot"):
+            if not reference_text:
+                raise RuntimeError("COSYVOICE_REFERENCE_TEXT_REQUIRED")
+            output = model.inference_zero_shot(input_text, reference_text, prompt_audio_16k=reference_audio_path, stream=False)
+        else:
+            raise RuntimeError("COSYVOICE_INFERENCE_METHOD_MISSING")
+    except TypeError:
+        if not reference_text or not hasattr(model, "inference_zero_shot"):
+            raise
+        output = model.inference_zero_shot(input_text, reference_text, prompt_audio_16k=reference_audio_path, stream=False)
+    item = next(iter(output), None)
+    if not item or "tts_speech" not in item:
+        raise RuntimeError("COSYVOICE_OUTPUT_MISSING")
+    try:
+        import soundfile as sf
+    except Exception as error:
+        raise RuntimeError("backend_dependency_missing: 请在 AutoDL 镜像中安装 soundfile") from error
+    speech = item["tts_speech"]
+    if hasattr(speech, "detach"):
+        speech = speech.detach().cpu().numpy()
+    if hasattr(speech, "squeeze"):
+        speech = speech.squeeze()
+    buffer = io.BytesIO()
+    sample_rate = getattr(model, "sample_rate", 22050)
+    sf.write(buffer, speech, sample_rate, format="WAV")
+    return normalize_binary_payload("audio/wav", buffer.getvalue())
+
+def call_builtin_tts_backend(payload):
+    backend_name = resolve_tts_backend_name(payload)
+    if backend_name == "f5-tts":
+        return call_builtin_f5_tts_backend(payload)
+    if backend_name == "cosyvoice":
+        return call_builtin_cosyvoice_backend(payload)
+    raise BackendMissing("TTS")
+
 def call_direct_backend(kind, payload):
     url = os.environ.get("AUTOGPU_" + kind + "_API_URL", "").strip()
     if url:
@@ -802,8 +1361,11 @@ def call_direct_backend(kind, payload):
             return json.loads(response_body.decode("utf-8") or "{}")
         return normalize_binary_payload(content_type, response_body)
 
-    if kind == "IMAGE" and image_backend_kind() == "diffusers":
+    if kind == "IMAGE" and image_backend_kind() in ("auto", "diffusers"):
         return call_builtin_image_backend(payload)
+
+    if kind == "TTS" and resolve_tts_backend_name(payload):
+        return call_builtin_tts_backend(payload)
 
     if kind == "LLM" and llm_backend_kind() == "transformers":
         return call_builtin_llm_backend(payload)
@@ -908,6 +1470,8 @@ def render_status_url(task_id, stored_task):
     return raw.rstrip("/") + "/" + quote(task_id, safe="")
 
 def fetch_video_status(task_id, stored_task):
+    if stored_task.get("output_path"):
+        return stored_task
     status_url = render_status_url(task_id, stored_task)
     if not status_url:
         return stored_task
@@ -932,11 +1496,30 @@ def fetch_video_status(task_id, stored_task):
         **({"error": {"message": first_value(payload, ("error", "message"))}} if normalize_status(payload) == "failed" else {}),
     }
 
+def build_request_base_url(handler):
+    forwarded_proto = handler.headers.get("x-forwarded-proto", "").split(",")[0].strip()
+    if forwarded_proto:
+        scheme = forwarded_proto
+    else:
+        scheme = "https" if handler.headers.get("x-forwarded-port", "") == "443" else "http"
+    host = handler.headers.get("x-forwarded-host", "").split(",")[0].strip() or handler.headers.get("host", "").strip()
+    if not host:
+        host = "127.0.0.1:" + str(os.environ.get("AUTOGPU_WORKER_PORT", "6006"))
+    return scheme + "://" + host
+
+def build_video_file_url(handler, task_id):
+    return build_request_base_url(handler).rstrip("/") + "/v1/autogpu/videos/" + quote(task_id, safe="") + "/file"
+
 def backend_presence(kind):
-    if kind == "IMAGE" and image_backend_kind() == "diffusers":
-        return True
+    available_model_types = [model["type"] for model in selected_models()]
+    if kind == "IMAGE" and image_backend_kind() in ("auto", "diffusers"):
+        return "image" in available_model_types
+    if kind == "VIDEO" and video_backend_kind() in ("auto", "diffusers"):
+        return "video" in available_model_types
+    if kind == "TTS" and tts_backend_kind() in ("auto", "builtin", "local"):
+        return "audio" in available_model_types
     if kind == "LLM" and llm_backend_kind() == "transformers":
-        return True
+        return "llm" in available_model_types
     return bool(os.environ.get("AUTOGPU_" + kind + "_API_URL", "").strip() or os.path.exists(backend_script(kind)))
 
 class WorkerHandler(BaseHTTPRequestHandler):
@@ -969,7 +1552,7 @@ class WorkerHandler(BaseHTTPRequestHandler):
         self._json(501, {
             "error": {
                 "type": "model_backend_missing",
-                "message": "AutoGPU Worker 已启动，但还没有配置 " + kind + " 直接推理 API 或脚本。"
+                "message": "AutoGPU Worker 已启动，但还没有准备好 " + kind + " 本地推理后端、直接 API 或脚本。"
             }
         })
 
@@ -1001,6 +1584,10 @@ class WorkerHandler(BaseHTTPRequestHandler):
     def _handle_video_create(self):
         try:
             payload = read_json_body(self)
+            if resolve_video_backend_name(payload):
+                stored = start_builtin_video_task(payload)
+                self._json(200, stored)
+                return
             result = call_direct_backend("VIDEO", payload)
             task_id = first_task_id(result)
             video_url = first_media_url(result)
@@ -1022,10 +1609,23 @@ class WorkerHandler(BaseHTTPRequestHandler):
         try:
             stored = TASKS.get(task_id, {"id": task_id, "status": "pending"})
             next_status = fetch_video_status(task_id, stored)
+            if next_status.get("output_path"):
+                next_status = {
+                    **next_status,
+                    "video_url": build_video_file_url(self, task_id),
+                }
             TASKS[task_id] = next_status
             self._json(200, next_status)
         except Exception as error:
             self._backend_error(error)
+
+    def _handle_video_file(self, task_id):
+        stored = TASKS.get(task_id)
+        if not stored or not stored.get("output_path") or not os.path.exists(stored["output_path"]):
+            self._json(404, {"ok": False, "error": "not_found"})
+            return
+        with open(stored["output_path"], "rb") as file:
+            self._bytes(200, "video/mp4", file.read())
 
     def _handle_tts(self):
         try:
@@ -1073,6 +1673,10 @@ class WorkerHandler(BaseHTTPRequestHandler):
                 ],
             })
             return
+        if path.startswith("/v1/autogpu/videos/") and path.endswith("/file"):
+            task_id = path.rstrip("/").split("/")[-2]
+            self._handle_video_file(task_id)
+            return
         if path.startswith("/v1/autogpu/videos/"):
             task_id = path.rsplit("/", 1)[-1]
             self._handle_video_status(task_id)
@@ -1116,22 +1720,52 @@ if ! command -v python3 >/dev/null 2>&1; then
   DEBIAN_FRONTEND=noninteractive apt-get install -y python3
 fi
 
-if [ "\${AUTOGPU_INSTALL_MODEL_DEPS:-1}" = "1" ] && [ "\${AUTOGPU_LLM_BACKEND:-transformers}" = "transformers" ]; then
+if [ "\${AUTOGPU_INSTALL_MODEL_DEPS:-1}" = "1" ]; then
   if ! python3 -m pip --version >/dev/null 2>&1; then
     apt-get update
     DEBIAN_FRONTEND=noninteractive apt-get install -y python3-pip
   fi
   python3 - <<'PY' || true
 import importlib.util
+import os
+import shutil
 import subprocess
 import sys
 
 required = []
-if importlib.util.find_spec("transformers") is None:
-    required.extend(["transformers", "accelerate", "safetensors", "sentencepiece"])
+
+def ensure_package(package_name, spec_name=None):
+    if importlib.util.find_spec(spec_name or package_name) is None and package_name not in required:
+        required.append(package_name)
+
+image_backend = os.environ.get("AUTOGPU_IMAGE_BACKEND", "diffusers").strip().lower()
+video_backend = os.environ.get("AUTOGPU_VIDEO_BACKEND", "auto").strip().lower()
+tts_backend = os.environ.get("AUTOGPU_TTS_BACKEND", "auto").strip().lower()
+llm_backend = os.environ.get("AUTOGPU_LLM_BACKEND", "transformers").strip().lower()
+
+if llm_backend == "transformers" or image_backend in ("auto", "diffusers") or video_backend in ("auto", "diffusers"):
+    ensure_package("transformers")
+    ensure_package("accelerate")
+    ensure_package("safetensors")
+    ensure_package("sentencepiece")
+
+if image_backend in ("auto", "diffusers") or video_backend in ("auto", "diffusers"):
+    ensure_package("diffusers")
+    ensure_package("pillow", "PIL")
+    ensure_package("imageio")
+    ensure_package("imageio-ffmpeg", "imageio_ffmpeg")
+
+if tts_backend in ("auto", "builtin", "local"):
+    ensure_package("soundfile")
+    if shutil.which("f5-tts_infer-cli") is None:
+        required.append("f5-tts")
+
 if required:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "-U", *required])
 PY
+  if [ -n "\${AUTOGPU_TTS_COSYVOICE_REPO_DIR:-}" ] && [ -f "\${AUTOGPU_TTS_COSYVOICE_REPO_DIR}/requirements.txt" ]; then
+    python3 -m pip install -r "\${AUTOGPU_TTS_COSYVOICE_REPO_DIR}/requirements.txt" || true
+  fi
 fi
 
 if command -v pkill >/dev/null 2>&1; then

@@ -198,7 +198,7 @@ const AUTODL_MODEL_BUNDLES: AutoDLModelBundle[] = [
     description: '轻量视频、基础生图和普通 TTS，文本分析建议使用外部 LLM，适合测试分镜到成片链路。',
     recommendedProfileId: '5090-p',
     supportedProfileIds: ['5090-p', 'pro6000-p'],
-    modelIds: ['ltx-video-2b-distilled', 'sdxl-sd35-medium', 'cosyvoice3-0.5b'],
+    modelIds: ['ltx-video-2b-distilled', 'sdxl-sd35-medium', 'f5-tts-v1'],
     featureTags: ['省钱', '轻量视频', '基础生图', '外部文本', '普通 TTS'],
   },
   {
@@ -218,7 +218,7 @@ const AUTODL_MODEL_BUNDLES: AutoDLModelBundle[] = [
     description: '高质量视频、图片编辑、大图生成和高级 TTS，文本分析建议使用外部 LLM，建议用 PRO6000。',
     recommendedProfileId: 'pro6000-p',
     supportedProfileIds: ['pro6000-p'],
-    modelIds: ['wan2.2-i2v-a14b', 'ltx-video-13b-fp8', 'qwen-image-edit', 'indextts2', 'fish-speech'],
+    modelIds: ['wan2.2-i2v-a14b', 'ltx-video-13b-fp8', 'qwen-image-edit', 'f5-tts-v1'],
     featureTags: ['高质量', '图生视频', '图片编辑', '外部文本', '高级 TTS'],
   },
 ]

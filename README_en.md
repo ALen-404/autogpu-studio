@@ -84,6 +84,15 @@ Then open “Profile / AutoDL Instance”:
 
 The built-in bootstrap starts a lightweight Worker with `/health`, `/v1/models`, `/v1/autogpu/images`, `/v1/autogpu/videos`, `/v1/autogpu/videos/{task_id}`, and `/v1/audio/speech`. AutoGPU Studio automatically registers image and video models with these direct API templates, so generation still uses the platform storyboard, character, location, shot, and prompt data. ComfyUI is not required.
 
+Current default local backend strategy:
+
+- Image: built-in `Diffusers`
+- Video: built-in async `LTX / Wan Diffusers`
+- TTS: built-in `F5-TTS`, with optional `CosyVoice` support when the repo is mounted
+- Text analysis: recommended to stay on an external LLM such as MiMo
+
+The Worker only exposes models returned by `/v1/models`, so the platform no longer shows unavailable AutoDL models as selectable.
+
 If the AutoDL image already exposes inference services, configure the endpoints in the platform `.env`; they are injected into the AutoDL start command when an instance is created:
 
 ```bash
@@ -95,15 +104,30 @@ AUTOGPU_TTS_API_URL=http://127.0.0.1:7003/speech
 
 Backends only need to accept JSON and return common fields: images may return `url`, `image_url`, `data[0].url`, or base64; video create should return `id` / `task_id`, the status endpoint should return `status` and `video_url`; TTS may return audio bytes or JSON with `audio_url`.
 
-For the first text-to-image smoke test, you can skip a separate API service and use the Worker built-in Diffusers image backend:
+If you do not want separate image / video / TTS API services, use the built-in Worker backends directly:
 
 ```bash
 AUTOGPU_IMAGE_BACKEND=diffusers
-AUTOGPU_IMAGE_DIFFUSERS_MODEL=/root/autodl-tmp/models/sdxl
-AUTOGPU_IMAGE_DEFAULT_STEPS=28
+AUTOGPU_VIDEO_BACKEND=auto
+AUTOGPU_TTS_BACKEND=auto
 ```
 
-The AutoDL image should already include `torch`, `diffusers`, `transformers`, `accelerate`, `safetensors`, and the target model weights. If `AUTOGPU_IMAGE_DIFFUSERS_MODEL` is not set, `sdxl-sd35-medium` tries `stabilityai/stable-diffusion-xl-base-1.0`; for other catalog models, map them explicitly with `AUTOGPU_IMAGE_MODEL_FLUX2_KLEIN_4B`, `AUTOGPU_IMAGE_MODEL_QWEN_IMAGE_EDIT`, or `AUTOGPU_IMAGE_MODEL_SDXL_SD35_MEDIUM`.
+On first boot, the Worker will best-effort install common Python dependencies for the selected backends. If you do not provide model mappings, the built-in backends try these defaults:
+
+- `sdxl-sd35-medium` -> `stabilityai/stable-diffusion-xl-base-1.0`
+- `ltx-video-2b-distilled` -> `Lightricks/LTX-Video`
+- `ltx-video-13b-fp8` -> `Lightricks/LTX-Video-0.9.8-13B-distilled`
+- `wan2.2-ti2v-5b` -> `Wan-AI/Wan2.2-TI2V-5B-Diffusers`
+- `wan2.2-i2v-a14b` -> `Wan-AI/Wan2.2-I2V-A14B-Diffusers`
+- `f5-tts-v1` -> `F5TTS_v1_Base`
+
+If the model weights are already baked into your AutoDL image, map them explicitly in `.env`, for example:
+
+```bash
+AUTOGPU_IMAGE_MODEL_FLUX2_KLEIN_4B=/root/autodl-tmp/models/flux2-klein-4b
+AUTOGPU_VIDEO_MODEL_WAN2_2_TI2V_5B=/root/autodl-tmp/models/wan2.2-ti2v-5b
+AUTOGPU_TTS_MODEL_F5_TTS_V1=F5TTS_v1_Base
+```
 
 ## Design Document
 

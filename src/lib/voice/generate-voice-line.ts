@@ -1,5 +1,6 @@
 import { logInfo as _ulogInfo } from '@/lib/logging/core'
 import { fal } from '@fal-ai/client'
+import { createAudioGenerator } from '@/lib/generators/factory'
 import { prisma } from '@/lib/prisma'
 import { getAudioApiKey, getProviderConfig, getProviderKey, resolveModelSelectionOrSingle } from '@/lib/api-config'
 import { normalizeToBase64ForGeneration } from '@/lib/media/outbound-image'
@@ -235,11 +236,38 @@ export async function generateVoiceLine(params: {
       strength: line.emotionStrength ?? 0.4,
       falApiKey,
     })
+  } else if (providerKey === 'openai-compatible') {
+    if (!voiceBinding || voiceBinding.provider !== 'openai-compatible') {
+      throw new Error('请先为该发言人设置参考音频')
+    }
+
+    const fullAudioUrl = await resolveReferenceAudioUrl(voiceBinding.referenceAudioUrl)
+    const generator = createAudioGenerator(audioSelection.provider)
+    const result = await generator.generate({
+      userId: params.userId,
+      text,
+      options: {
+        provider: audioSelection.provider,
+        modelId: audioSelection.modelId,
+        modelKey: audioSelection.modelKey,
+        referenceAudioUrl: fullAudioUrl,
+        emotionPrompt: line.emotionPrompt ?? undefined,
+      },
+    })
+    if (!result.success || !result.audioUrl) {
+      throw new Error(result.error || 'OPENAI_COMPAT_AUDIO_GENERATION_FAILED')
+    }
+
+    const audioData = await downloadAudioData(result.audioUrl)
+    generated = {
+      audioData,
+      audioDuration: getWavDurationFromBuffer(audioData),
+    }
   } else if (providerKey === 'bailian') {
     if (!voiceBinding || voiceBinding.provider !== 'bailian') {
       const hasUploadedReference =
         !!character?.customVoiceUrl ||
-        (speakerVoice?.provider === 'fal' && !!speakerVoice.audioUrl)
+        (!!speakerVoice && 'audioUrl' in speakerVoice && typeof speakerVoice.audioUrl === 'string' && speakerVoice.audioUrl.length > 0)
       if (hasUploadedReference) {
         throw new Error('无音色ID，QwenTTS 必须使用 AI 设计音色')
       }

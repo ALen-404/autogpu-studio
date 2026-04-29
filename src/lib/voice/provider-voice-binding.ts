@@ -1,6 +1,6 @@
 type VoiceSource = 'character' | 'speaker'
 
-export type SupportedAudioProviderKey = 'fal' | 'bailian'
+export type SupportedAudioProviderKey = 'fal' | 'bailian' | 'openai-compatible'
 
 export interface CharacterVoiceFields {
   customVoiceUrl?: string | null
@@ -43,7 +43,16 @@ export type BailianVoiceGenerationBinding = {
   voiceId: string
 }
 
-export type VoiceGenerationBinding = FalVoiceGenerationBinding | BailianVoiceGenerationBinding
+export type OpenAICompatibleVoiceGenerationBinding = {
+  provider: 'openai-compatible'
+  source: VoiceSource
+  referenceAudioUrl: string
+}
+
+export type VoiceGenerationBinding =
+  | FalVoiceGenerationBinding
+  | BailianVoiceGenerationBinding
+  | OpenAICompatibleVoiceGenerationBinding
 
 export type SpeakerVoicePatch =
   | {
@@ -151,7 +160,7 @@ export function parseSpeakerVoiceMap(raw: string | null | undefined): SpeakerVoi
 }
 
 function normalizeProviderKey(providerKey: string): SupportedAudioProviderKey | null {
-  if (providerKey === 'fal' || providerKey === 'bailian') {
+  if (providerKey === 'fal' || providerKey === 'bailian' || providerKey === 'openai-compatible') {
     return providerKey
   }
   return null
@@ -175,6 +184,15 @@ function toBailianBinding(source: VoiceSource, voiceId: string | null): BailianV
   }
 }
 
+function toOpenAICompatibleBinding(source: VoiceSource, referenceAudioUrl: string | null): OpenAICompatibleVoiceGenerationBinding | null {
+  if (!referenceAudioUrl) return null
+  return {
+    provider: 'openai-compatible',
+    source,
+    referenceAudioUrl,
+  }
+}
+
 export function resolveVoiceBindingForProvider(params: {
   providerKey: string
   character?: CharacterVoiceFields | null
@@ -191,6 +209,13 @@ export function resolveVoiceBindingForProvider(params: {
     if (fromCharacter) return fromCharacter
     if (params.speakerVoice?.provider !== 'fal') return null
     return toFalBinding('speaker', readTrimmedString(params.speakerVoice.audioUrl))
+  }
+
+  if (providerKey === 'openai-compatible') {
+    const fromCharacter = toOpenAICompatibleBinding('character', characterAudioUrl)
+    if (fromCharacter) return fromCharacter
+    if (params.speakerVoice?.provider !== 'fal') return null
+    return toOpenAICompatibleBinding('speaker', readTrimmedString(params.speakerVoice.audioUrl))
   }
 
   const fromCharacter = toBailianBinding('character', characterVoiceId)
