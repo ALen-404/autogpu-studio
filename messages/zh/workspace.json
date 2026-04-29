@@ -22,6 +22,7 @@
   "saving": "保存中...",
   "createFailed": "创建项目失败",
   "analysisModelRequiredAfterCreate": "项目已创建。请先前往个人设置配置默认模型（至少设置分析模型），否则无法使用。",
+  "autoDLModelStartingAfterCreate": "项目已创建。AutoDL 机器已启动，但模型包还在接入中；等设置中心显示“模型已就绪”后就可以直接使用。",
   "updateFailed": "更新项目失败",
   "validation": {
     "nameRequired": "项目名称不能为空。",
@@ -34,6 +35,14 @@
   "statsImages": "图片数",
   "statsVideos": "视频数",
   "noContent": "暂无内容",
+  "modelSetupNotice": {
+    "autoDLStarting": "AutoDL 机器已启动，但模型包还没接入完成。等设置中心显示“模型已就绪”后，就不会再出现这个提示。",
+    "missing": {
+      "before": "检测到尚未配置模型，请先前往",
+      "link": "设置中心",
+      "after": "配置模型，或在创建项目后于项目配置中自定义。"
+    }
+  },
   "modelNotConfigured": {
     "before": "检测到尚未配置模型，请先前往",
     "link": "设置中心",

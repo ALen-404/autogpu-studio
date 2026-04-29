@@ -67,6 +67,9 @@ function toWorkerModelType(model: LocalModelCatalogItem): AutoDLWorkerModelType 
 
 function normalizeWorkerBaseUrl(value: string): string {
   const parsed = new URL(value)
+  if (parsed.protocol === 'http:' && parsed.port === '8443') {
+    parsed.protocol = 'https:'
+  }
   parsed.pathname = parsed.pathname.replace(/\/+$/, '')
   const base = parsed.toString().replace(/\/+$/, '')
   return `${base}/v1`

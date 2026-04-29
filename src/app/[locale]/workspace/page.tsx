@@ -8,7 +8,7 @@ import ConfirmDialog from '@/components/ConfirmDialog'
 import TaskStatusInline from '@/components/task/TaskStatusInline'
 import { resolveTaskPresentationState } from '@/lib/task/presentation'
 import { AppIcon, IconGradientDefs } from '@/components/ui/icons'
-import { shouldGuideToModelSetup } from '@/lib/workspace/model-setup'
+import { readModelSetupNotice, shouldGuideToModelSetup, type ModelSetupNotice } from '@/lib/workspace/model-setup'
 import { Link, useRouter } from '@/i18n/navigation'
 import { apiFetch } from '@/lib/api-fetch'
 import { readApiErrorMessage } from '@/lib/api/read-error-message'
@@ -92,7 +92,7 @@ export default function WorkspacePage() {
   const [pagination, setPagination] = useState<Pagination>({ page: 1, pageSize: PAGE_SIZE, total: 0, totalPages: 0 })
   const [searchQuery, setSearchQuery] = useState('')
   const [searchInput, setSearchInput] = useState('')
-  const [modelNotConfigured, setModelNotConfigured] = useState(false)
+  const [modelSetupNotice, setModelSetupNotice] = useState<ModelSetupNotice | null>(null)
 
   const t = useTranslations('workspace')
   const tc = useTranslations('common')
@@ -154,7 +154,7 @@ export default function WorkspacePage() {
         const res = await apiFetch('/api/user-preference')
         if (res.ok) {
           const payload: unknown = await res.json()
-          setModelNotConfigured(shouldGuideToModelSetup(payload))
+          setModelSetupNotice(readModelSetupNotice(payload))
         }
       } catch {
         // 忽略检测失败
@@ -188,10 +188,12 @@ export default function WorkspacePage() {
 
       if (response.ok) {
         let shouldOpenModelSetup = true
+        let nextModelSetupNotice: ModelSetupNotice | null = 'missing'
         const preferenceResponse = await apiFetch('/api/user-preference')
         if (preferenceResponse.ok) {
           const preferencePayload: unknown = await preferenceResponse.json()
           shouldOpenModelSetup = shouldGuideToModelSetup(preferencePayload)
+          nextModelSetupNotice = readModelSetupNotice(preferencePayload)
         } else {
           _ulogError('获取用户偏好失败:', { status: preferenceResponse.status })
         }
@@ -205,8 +207,12 @@ export default function WorkspacePage() {
         setFormData({ name: '', description: '' })
 
         if (shouldOpenModelSetup) {
-          alert(t('analysisModelRequiredAfterCreate'))
-          router.push({ pathname: '/profile' })
+          if (nextModelSetupNotice === 'autodl-starting') {
+            alert(t('autoDLModelStartingAfterCreate'))
+          } else {
+            alert(t('analysisModelRequiredAfterCreate'))
+            router.push({ pathname: '/profile' })
+          }
         }
       } else {
         setCreateError(await readApiErrorMessage(response, t('createFailed')))
@@ -585,19 +591,25 @@ export default function WorkspacePage() {
         <div className="fixed inset-0 glass-overlay flex items-center justify-center z-50 backdrop-blur-sm">
           <div className="glass-surface-modal p-6 w-full max-w-md mx-4">
             <h2 className="text-xl font-bold text-[var(--glass-text-primary)] mb-4">{t('createProject')}</h2>
-            {modelNotConfigured && (
+            {modelSetupNotice && (
               <div className="flex items-start gap-2 mb-4 px-3 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400">
                 <AppIcon name="alert" className="w-4 h-4 shrink-0 mt-0.5" />
                 <span className="text-[12px] leading-relaxed">
-                  {t('modelNotConfigured.before')}
-                  <Link
-                    href={{ pathname: '/profile' }}
-                    className="font-semibold underline underline-offset-2 hover:text-amber-900 dark:hover:text-amber-300 mx-0.5"
-                    onClick={() => setShowCreateModal(false)}
-                  >
-                    {t('modelNotConfigured.link')}
-                  </Link>
-                  {t('modelNotConfigured.after')}
+                  {modelSetupNotice === 'autodl-starting' ? (
+                    t('modelSetupNotice.autoDLStarting')
+                  ) : (
+                    <>
+                      {t('modelSetupNotice.missing.before')}
+                      <Link
+                        href={{ pathname: '/profile' }}
+                        className="font-semibold underline underline-offset-2 hover:text-amber-900 dark:hover:text-amber-300 mx-0.5"
+                        onClick={() => setShowCreateModal(false)}
+                      >
+                        {t('modelSetupNotice.missing.link')}
+                      </Link>
+                      {t('modelSetupNotice.missing.after')}
+                    </>
+                  )}
                 </span>
               </div>
             )}

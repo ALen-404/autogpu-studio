@@ -22,6 +22,7 @@
   "saving": "Saving...",
   "createFailed": "Failed to create project",
   "analysisModelRequiredAfterCreate": "Project created. Please configure default models in Profile first (at minimum an analysis model), or the project cannot be used.",
+  "autoDLModelStartingAfterCreate": "Project created. The AutoDL machine is running, but the model bundle is still being connected. You can use it once Settings shows the models are ready.",
   "updateFailed": "Failed to update project",
   "validation": {
     "nameRequired": "Project name is required.",
@@ -34,6 +35,14 @@
   "statsImages": "Images",
   "statsVideos": "Videos",
   "noContent": "No content yet",
+  "modelSetupNotice": {
+    "autoDLStarting": "The AutoDL machine is running, but the model bundle is not connected yet. This notice disappears once Settings shows the models are ready.",
+    "missing": {
+      "before": "No models configured yet. Please go to",
+      "link": "Settings Center",
+      "after": "to configure models, or customize them in project settings after creation."
+    }
+  },
   "modelNotConfigured": {
     "before": "No models configured yet. Please go to",
     "link": "Settings Center",

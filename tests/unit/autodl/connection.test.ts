@@ -335,7 +335,7 @@ describe('AutoDL 连接配置', () => {
 
     expect(config.provider).toMatchObject({
       id: 'openai-compatible:session-1',
-      baseUrl: 'http://worker.autodl.com:8443/v1',
+      baseUrl: 'https://worker.autodl.com:8443/v1',
       gatewayRoute: 'openai-compat',
     })
     expect(config.models.some((model) => model.type === 'video')).toBe(true)
