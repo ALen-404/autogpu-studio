@@ -16,6 +16,10 @@ const REDIS_USERNAME = process.env.REDIS_USERNAME
 const REDIS_PASSWORD = process.env.REDIS_PASSWORD
 const REDIS_TLS = process.env.REDIS_TLS === 'true'
 const IS_TEST_ENV = process.env.NODE_ENV === 'test'
+const SHOULD_SKIP_REDIS_AUTOCONNECT = IS_TEST_ENV
+  || process.env.BUILD_SKIP_RUNTIME_BOOTSTRAP === '1'
+  || process.env.BUILD_SKIP_RUNTIME_BOOTSTRAP === 'true'
+  || process.env.NEXT_PHASE === 'phase-production-build'
 
 function buildBaseConfig() {
   return {
@@ -25,7 +29,7 @@ function buildBaseConfig() {
     password: REDIS_PASSWORD,
     tls: REDIS_TLS ? {} : undefined,
     enableReadyCheck: true,
-    lazyConnect: IS_TEST_ENV,
+    lazyConnect: SHOULD_SKIP_REDIS_AUTOCONNECT,
     retryStrategy(times: number) {
       // Exponential backoff capped at 30s.
       return Math.min(2 ** Math.min(times, 10) * 100, 30_000)
