@@ -11,6 +11,41 @@ interface AutoDLApiResponse<T> {
   request_id?: string
 }
 
+type AutoDLRequestQueryValue = string | number | boolean | null | undefined
+
+interface AutoDLErrorParams {
+  autoDLCode?: string
+  httpStatus: number
+  message: string
+  requestId?: string
+}
+
+export class AutoDLError extends Error {
+  code: string
+  autoDLCode: string
+  httpStatus: number
+  provider = 'AutoDL'
+  requestId?: string
+  details: Record<string, unknown>
+
+  constructor(params: AutoDLErrorParams) {
+    const autoDLCode = params.autoDLCode || `AUTODL_HTTP_${params.httpStatus}`
+    super(params.message)
+    this.name = 'AutoDLError'
+    this.code = inferAutoDLUnifiedErrorCode(autoDLCode, params.message, params.httpStatus)
+    this.autoDLCode = autoDLCode
+    this.httpStatus = params.httpStatus
+    this.requestId = params.requestId
+    this.details = {
+      provider: this.provider,
+      autoDLCode,
+      autoDLRequestId: params.requestId,
+      autoDLHttpStatus: params.httpStatus,
+      message: params.message,
+    }
+  }
+}
+
 interface AutoDLInstanceListData {
   result_total?: number
   list?: unknown[]
@@ -129,10 +164,40 @@ function readBalanceNumber(value: unknown): number | null {
   return null
 }
 
+function inferAutoDLUnifiedErrorCode(autoDLCode: string, message: string, httpStatus: number): string {
+  const normalizedCode = autoDLCode.trim()
+  const normalizedMessage = message.trim().toLowerCase()
+  if (normalizedCode === 'RequestParameterIsWrong' || normalizedMessage.includes('参数错误')) return 'INVALID_PARAMS'
+  if (normalizedMessage.includes('实名认证') || normalizedMessage.includes('开发者 token')) return 'MISSING_CONFIG'
+  if (normalizedMessage.includes('余额不足') || normalizedMessage.includes('余额不够') || normalizedMessage.includes('请充值')) {
+    return 'INSUFFICIENT_BALANCE'
+  }
+  if (httpStatus === 401) return 'UNAUTHORIZED'
+  if (httpStatus === 403) return 'FORBIDDEN'
+  if (httpStatus === 404) return 'NOT_FOUND'
+  if (httpStatus === 429) return 'RATE_LIMIT'
+  if (httpStatus >= 500) return 'EXTERNAL_ERROR'
+  return 'EXTERNAL_ERROR'
+}
+
+function buildAutoDLRequestUrl(
+  baseUrl: string,
+  path: string,
+  query?: Record<string, AutoDLRequestQueryValue>,
+): string {
+  const url = new URL(`${baseUrl}${path}`)
+  for (const [key, value] of Object.entries(query || {})) {
+    if (value === null || value === undefined) continue
+    url.searchParams.set(key, String(value))
+  }
+  return url.toString()
+}
+
 async function requestAutoDL<T>(params: {
   token: string
   path: string
-  body: Record<string, unknown>
+  body?: Record<string, unknown>
+  query?: Record<string, AutoDLRequestQueryValue>
   fetcher?: typeof fetch
   baseUrl?: string
   method?: 'GET' | 'POST'
@@ -141,12 +206,12 @@ async function requestAutoDL<T>(params: {
   const fetcher = params.fetcher || fetch
   const baseUrl = getAutoDLApiBaseUrl(params.baseUrl)
   const method = params.method || 'POST'
-  const url = `${baseUrl}${params.path}`
+  const url = buildAutoDLRequestUrl(baseUrl, params.path, params.query)
   const headers = {
     Authorization: token,
     'Content-Type': 'application/json',
   }
-  const body = JSON.stringify(params.body)
+  const body = params.body ? JSON.stringify(params.body) : undefined
 
   let status = 0
   let ok = false
@@ -174,10 +239,18 @@ async function requestAutoDL<T>(params: {
   }
 
   if (!payload) {
-    throw new Error(`AUTODL_HTTP_${status}`)
+    throw new AutoDLError({
+      httpStatus: status,
+      message: `AutoDL 返回 HTTP ${status}`,
+    })
   }
   if (!ok || payload.code !== 'Success') {
-    throw new Error(payload.msg || payload.code || `AUTODL_HTTP_${status}`)
+    throw new AutoDLError({
+      autoDLCode: payload.code,
+      httpStatus: status,
+      message: payload.msg || payload.code || `AutoDL 返回 HTTP ${status}`,
+      requestId: payload.request_id,
+    })
   }
   return payload
 }
@@ -318,7 +391,7 @@ export async function getAutoDLInstanceSnapshot(params: AutoDLInstanceActionPara
     fetcher: params.fetcher,
     baseUrl: params.baseUrl,
     method: 'GET',
-    body: { instance_uuid: instanceUuid },
+    query: { instance_uuid: instanceUuid },
   })
   return payload.data || {}
 }
@@ -331,7 +404,7 @@ export async function getAutoDLInstanceStatus(params: AutoDLInstanceActionParams
     fetcher: params.fetcher,
     baseUrl: params.baseUrl,
     method: 'GET',
-    body: { instance_uuid: instanceUuid },
+    query: { instance_uuid: instanceUuid },
   })
   return typeof payload.data === 'string' ? payload.data : ''
 }
@@ -344,6 +417,6 @@ export function resolveAutoDLWorkerBaseUrl(
   const domain = port === 6008 ? snapshot.service_6008_domain : snapshot.service_6006_domain
   const protocol = port === 6008 ? snapshot.service_6008_port_protocol : snapshot.service_6006_port_protocol
   if (!domain) return null
-  const normalizedProtocol = protocol === 'https' ? 'https' : 'http'
+  const normalizedProtocol = protocol === 'https' || domain.endsWith(':8443') ? 'https' : 'http'
   return `${normalizedProtocol}://${domain}`
 }

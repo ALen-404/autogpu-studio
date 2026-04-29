@@ -38,6 +38,7 @@ export {
   type NormalizedAutoDLConnectionInput,
 } from './connection'
 export {
+  AutoDLError,
   createAutoDLInstance,
   getAutoDLInstanceSnapshot,
   getAutoDLInstanceStatus,

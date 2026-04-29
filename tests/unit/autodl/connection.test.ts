@@ -176,7 +176,7 @@ describe('AutoDL 连接配置', () => {
       service_6006_port_protocol: 'http',
       service_6008_domain: 'worker-6008.autodl.com:8443',
       service_6008_port_protocol: 'http',
-    }, 6008)).toBe('http://worker-6008.autodl.com:8443')
+    }, 6008)).toBe('https://worker-6008.autodl.com:8443')
   })
 
   it('生成开机自启动 Worker 命令', () => {
@@ -231,10 +231,10 @@ describe('AutoDL 连接配置', () => {
     vi.unstubAllEnvs()
   })
 
-  it('按 AutoDL 官方 Pro API 使用 GET 查询实例详情和状态', async () => {
+  it('按 AutoDL 当前 Pro API 使用 GET query 查询实例详情和状态', async () => {
     const fetcher = vi.fn(async (url: string | URL | Request) => {
       const endpoint = String(url)
-      if (endpoint.endsWith('/snapshot')) {
+      if (endpoint.includes('/snapshot?')) {
         return new Response(JSON.stringify({
           code: 'Success',
           data: {
@@ -266,19 +266,44 @@ describe('AutoDL 连接配置', () => {
     })).resolves.toMatchObject({ payg_price: 1970 })
 
     expect(fetcher).toHaveBeenNthCalledWith(1,
-      'https://api.autodl.com/api/v1/dev/instance/pro/status',
+      'https://api.autodl.com/api/v1/dev/instance/pro/status?instance_uuid=pro-test',
       expect.objectContaining({
         method: 'GET',
-        body: JSON.stringify({ instance_uuid: 'pro-test' }),
+        body: undefined,
       }),
     )
     expect(fetcher).toHaveBeenNthCalledWith(2,
-      'https://api.autodl.com/api/v1/dev/instance/pro/snapshot',
+      'https://api.autodl.com/api/v1/dev/instance/pro/snapshot?instance_uuid=pro-test',
       expect.objectContaining({
         method: 'GET',
-        body: JSON.stringify({ instance_uuid: 'pro-test' }),
+        body: undefined,
       }),
     )
+  })
+
+  it('AutoDL 上游参数错误会保留成可读的参数错误', async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({
+      code: 'RequestParameterIsWrong',
+      data: null,
+      msg: '请求参数错误',
+      request_id: 'req_bad_params',
+    }), { status: 200 }))
+
+    await expect(getAutoDLInstanceStatus({
+      token: 'autodl-token-123456',
+      instanceUuid: 'pro-test',
+      fetcher,
+    })).rejects.toMatchObject({
+      name: 'AutoDLError',
+      code: 'INVALID_PARAMS',
+      autoDLCode: 'RequestParameterIsWrong',
+      requestId: 'req_bad_params',
+      details: {
+        provider: 'AutoDL',
+        autoDLCode: 'RequestParameterIsWrong',
+        autoDLRequestId: 'req_bad_params',
+      },
+    })
   })
 
   it('把 AutoDL 状态和 Worker 健康状态映射为平台会话状态', () => {
