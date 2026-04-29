@@ -2,6 +2,14 @@
 // https://nextjs.org/docs/app/building-your-application/optimizing/instrumentation
 
 export async function register() {
+  if (
+    process.env.BUILD_SKIP_RUNTIME_BOOTSTRAP === '1'
+    || process.env.BUILD_SKIP_RUNTIME_BOOTSTRAP === 'true'
+    || process.env.NEXT_PHASE === 'phase-production-build'
+  ) {
+    return
+  }
+
   // 在 Edge Runtime 中直接返回，避免加载 Prisma（它使用了动态代码生成）
   if (process.env.NEXT_RUNTIME === 'edge') {
     return
