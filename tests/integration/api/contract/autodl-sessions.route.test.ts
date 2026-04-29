@@ -27,10 +27,12 @@ const autoDLMock = vi.hoisted(() => ({
   buildAutoDLWorkerStartCommand: vi.fn(),
   buildSessionStartCommand: vi.fn(),
   getAutoDLPublicServerUrl: vi.fn(() => 'https://cryptotools.bar'),
+  getAutoDLInstanceStatus: vi.fn(),
   listAutoDLInstances: vi.fn(),
   getAutoDLInstanceSnapshot: vi.fn(),
   isAutoDLPublicServerUrlReachableFromInstance: vi.fn(() => true),
   powerOnAutoDLInstance: vi.fn(),
+  runAutoDLWorkerStartCommandOverSsh: vi.fn(),
 }))
 
 vi.mock('@/lib/api-auth', () => authMock)
@@ -44,12 +46,16 @@ vi.mock('@/lib/autodl', async () => {
     buildAutoDLWorkerStartCommand: autoDLMock.buildAutoDLWorkerStartCommand,
     buildSessionStartCommand: autoDLMock.buildSessionStartCommand,
     getAutoDLPublicServerUrl: autoDLMock.getAutoDLPublicServerUrl,
+    getAutoDLInstanceStatus: autoDLMock.getAutoDLInstanceStatus,
     getAutoDLInstanceSnapshot: autoDLMock.getAutoDLInstanceSnapshot,
     isAutoDLPublicServerUrlReachableFromInstance: autoDLMock.isAutoDLPublicServerUrlReachableFromInstance,
     listAutoDLInstances: autoDLMock.listAutoDLInstances,
     powerOnAutoDLInstance: autoDLMock.powerOnAutoDLInstance,
   }
 })
+vi.mock('@/lib/autodl/ssh', () => ({
+  runAutoDLWorkerStartCommandOverSsh: autoDLMock.runAutoDLWorkerStartCommandOverSsh,
+}))
 
 describe('api contract - AutoDL sessions', () => {
   beforeEach(() => {
@@ -111,10 +117,16 @@ describe('api contract - AutoDL sessions', () => {
       startCommand: 'AUTOGPU_SERVER_URL=https://cryptotools.bar bash -lc start',
     })
     autoDLMock.buildAutoDLWorkerStartCommand.mockReturnValue('AUTOGPU_WORKER_SECRET=existing-worker-secret bash -lc start')
+    autoDLMock.getAutoDLInstanceStatus.mockResolvedValue('stopped')
     autoDLMock.powerOnAutoDLInstance.mockResolvedValue({
       ok: true,
       message: 'ok',
       requestId: 'req_power_on',
+    })
+    autoDLMock.runAutoDLWorkerStartCommandOverSsh.mockResolvedValue({
+      ok: true,
+      message: 'ok',
+      requestId: 'ssh_reinject',
     })
   })
 
@@ -385,5 +397,72 @@ describe('api contract - AutoDL sessions', () => {
         workerSharedSecretCiphertext: 'existing-worker-secret-cipher',
       }),
     }))
+  })
+
+  it('POST /api/autodl/sessions/:id/power-on 遇到运行中实例时直接 SSH 重注入 Worker', async () => {
+    autoDLMock.getAutoDLInstanceStatus.mockResolvedValue('running')
+    autoDLMock.getAutoDLInstanceSnapshot.mockResolvedValue({
+      ssh_command: 'ssh -p 32123 root@connect.autodl.example',
+      root_password: 'root-password',
+    })
+    prismaMock.autoDLInstanceSession.findFirst.mockResolvedValue({
+      id: 'session-1',
+      instanceUuid: 'pro-77742ca0bda5',
+      status: 'failed',
+      modelBundle: 'balanced',
+      workerSharedSecretCiphertext: 'existing-worker-secret-cipher',
+      connection: {
+        tokenCiphertext: 'encrypted-token',
+        preferredPort: 6006,
+      },
+    })
+    prismaMock.autoDLInstanceSession.update.mockResolvedValue({
+      id: 'session-1',
+      instanceUuid: 'pro-77742ca0bda5',
+      profileId: 'pro6000-p',
+      imageUuid: 'base-image',
+      modelBundle: 'balanced',
+      status: 'booting',
+      autodlStatus: 'running',
+      workerBaseUrl: null,
+      workerSharedSecretCiphertext: 'existing-worker-secret-cipher',
+      paygPrice: 1970,
+      createdAt: new Date('2026-04-29T05:00:00.000Z'),
+      updatedAt: new Date('2026-04-29T05:10:00.000Z'),
+      startedAt: new Date('2026-04-29T05:10:00.000Z'),
+      releasedAt: null,
+    })
+
+    const mod = await import('@/app/api/autodl/sessions/[sessionId]/power-on/route')
+    const req = buildMockRequest({
+      path: '/api/autodl/sessions/session-1/power-on',
+      method: 'POST',
+    })
+
+    const res = await mod.POST(req, { params: Promise.resolve({ sessionId: 'session-1' }) })
+    const json = await res.json() as {
+      success: boolean
+      session: { id: string; status: string }
+    }
+
+    expect(res.status).toBe(200)
+    expect(json.success).toBe(true)
+    expect(autoDLMock.powerOnAutoDLInstance).not.toHaveBeenCalled()
+    expect(autoDLMock.runAutoDLWorkerStartCommandOverSsh).toHaveBeenCalledWith({
+      sshCommand: 'ssh -p 32123 root@connect.autodl.example',
+      rootPassword: 'root-password',
+      startCommand: 'AUTOGPU_WORKER_SECRET=existing-worker-secret bash -lc start',
+    })
+    expect(prismaMock.autoDLInstanceSession.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        status: 'booting',
+        autodlStatus: 'running',
+        workerSharedSecretCiphertext: 'existing-worker-secret-cipher',
+      }),
+    }))
+    expect(json.session).toMatchObject({
+      id: 'session-1',
+      status: 'booting',
+    })
   })
 })

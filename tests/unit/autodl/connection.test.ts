@@ -24,6 +24,7 @@ import {
   probeAutoDLWorkerReadiness,
   resolveAutoDLSessionRuntimeStatus,
 } from '@/lib/autodl/session'
+import { parseAutoDLSshCommand } from '@/lib/autodl/ssh'
 import { buildAutoDLWorkerProviderConfig } from '@/lib/autodl/provider'
 
 describe('AutoDL 连接配置', () => {
@@ -227,6 +228,14 @@ describe('AutoDL 连接配置', () => {
       service_6008_domain: 'worker-6008.autodl.com:8443',
       service_6008_port_protocol: 'http',
     }, 6008)).toBe('https://worker-6008.autodl.com:8443')
+  })
+
+  it('解析 AutoDL 返回的 SSH 登录命令', () => {
+    expect(parseAutoDLSshCommand('ssh -p 32123 root@connect.autodl.example')).toEqual({
+      host: 'connect.autodl.example',
+      port: 32123,
+      username: 'root',
+    })
   })
 
   it('生成开机自启动 Worker 命令', () => {

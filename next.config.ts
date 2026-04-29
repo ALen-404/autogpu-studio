@@ -7,6 +7,8 @@ const nextConfig: NextConfig = {
   // 已删除 ignoreBuildErrors / ignoreDuringBuilds，构建保持严格门禁
   // Next 15 的 allowedDevOrigins 是顶层配置，不属于 experimental
   outputFileTracingRoot: process.cwd(),
+  // ssh2 包含原生二进制，只在服务端 SSH 注入 Worker 时使用。
+  serverExternalPackages: ['ssh2'],
   turbopack: {
     root: process.cwd(),
   },

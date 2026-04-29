@@ -8,10 +8,13 @@ import {
   buildSessionStartCommand,
   decryptAutoDLToken,
   decryptAutoDLWorkerSecret,
+  getAutoDLInstanceSnapshot,
+  getAutoDLInstanceStatus,
   getAutoDLPublicServerUrl,
   isAutoDLPublicServerUrlReachableFromInstance,
   powerOnAutoDLInstance,
 } from '@/lib/autodl'
+import { runAutoDLWorkerStartCommandOverSsh } from '@/lib/autodl/ssh'
 
 const sessionSelect = {
   id: true,
@@ -84,17 +87,46 @@ export const POST = apiHandler(async (
       preferredPort,
       modelBundle: session.modelBundle || 'balanced',
     })
-  await powerOnAutoDLInstance({
-    token: decryptAutoDLToken(session.connection.tokenCiphertext),
+  const token = decryptAutoDLToken(session.connection.tokenCiphertext)
+  const currentAutoDLStatus = await getAutoDLInstanceStatus({
+    token,
     instanceUuid: session.instanceUuid,
-    startCommand: start.startCommand,
-  })
+  }).catch(() => '')
+  const isAlreadyRunning = currentAutoDLStatus.trim().toLowerCase() === 'running'
+  if (isAlreadyRunning) {
+    const snapshot = await getAutoDLInstanceSnapshot({
+      token,
+      instanceUuid: session.instanceUuid,
+    })
+    if (!snapshot.ssh_command || !snapshot.root_password) {
+      throw new ApiError('MISSING_CONFIG', {
+        message: 'AutoDL 实例已在运行，但没有返回 SSH 信息，无法直接注入 Worker。请先关机后再启动实例。',
+      })
+    }
+    try {
+      await runAutoDLWorkerStartCommandOverSsh({
+        sshCommand: snapshot.ssh_command,
+        rootPassword: snapshot.root_password,
+        startCommand: start.startCommand,
+      })
+    } catch {
+      throw new ApiError('EXTERNAL_ERROR', {
+        message: 'AutoDL 实例已在运行，但远程注入 Worker 失败。请稍后重试，或先关机后再启动实例。',
+      })
+    }
+  } else {
+    await powerOnAutoDLInstance({
+      token,
+      instanceUuid: session.instanceUuid,
+      startCommand: start.startCommand,
+    })
+  }
 
   const updated = await prisma.autoDLInstanceSession.update({
     where: { id: session.id },
     data: {
       status: 'booting',
-      autodlStatus: 'booting',
+      autodlStatus: isAlreadyRunning ? 'running' : 'booting',
       workerSharedSecretCiphertext: start.workerSecret.ciphertext,
       startedAt: new Date(),
     },
