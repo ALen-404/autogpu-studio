@@ -165,15 +165,17 @@ export function buildAutoDLWorkerProviderConfig(
   if (!params.workerSharedSecretCiphertext.trim()) throw new Error('AUTODL_WORKER_SECRET_REQUIRED')
 
   const providerId = `openai-compatible:${params.sessionId}`
-  const models = getLocalModelCatalogForBundle(params.profileId, params.modelBundle).map((model) => ({
-    modelId: model.id,
-    modelKey: composeModelKey(providerId, model.id),
-    name: `AutoDL ${model.name}`,
-    type: toWorkerModelType(model),
-    provider: providerId,
-    price: 0,
-    ...buildDirectApiTemplateForModel(model),
-  }))
+  const models = getLocalModelCatalogForBundle(params.profileId, params.modelBundle)
+    .filter((model) => model.modality !== 'llm')
+    .map((model) => ({
+      modelId: model.id,
+      modelKey: composeModelKey(providerId, model.id),
+      name: `AutoDL ${model.name}`,
+      type: toWorkerModelType(model),
+      provider: providerId,
+      price: 0,
+      ...buildDirectApiTemplateForModel(model),
+    }))
 
   return {
     provider: {
@@ -217,9 +219,7 @@ export async function upsertAutoDLWorkerProvider(
   const firstImageModel = config.models.find((model) => model.type === 'image')?.modelKey
   const firstVideoModel = config.models.find((model) => model.type === 'video')?.modelKey
   const firstAudioModel = config.models.find((model) => model.type === 'audio')?.modelKey
-  const firstLlmModel = config.models.find((model) => model.type === 'llm')?.modelKey
   const defaults = {
-    ...(!pref?.analysisModel && firstLlmModel ? { analysisModel: firstLlmModel } : {}),
     ...(!pref?.characterModel && firstImageModel ? { characterModel: firstImageModel } : {}),
     ...(!pref?.locationModel && firstImageModel ? { locationModel: firstImageModel } : {}),
     ...(!pref?.storyboardModel && firstImageModel ? { storyboardModel: firstImageModel } : {}),
@@ -234,7 +234,6 @@ export async function upsertAutoDLWorkerProvider(
       userId: params.userId,
       customProviders: JSON.stringify(providers),
       customModels: JSON.stringify(models),
-      ...(firstLlmModel ? { analysisModel: firstLlmModel } : {}),
       ...(firstImageModel ? {
         characterModel: firstImageModel,
         locationModel: firstImageModel,

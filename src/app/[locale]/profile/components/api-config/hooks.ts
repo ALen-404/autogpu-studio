@@ -9,6 +9,8 @@ import {
     CustomModel,
     PRESET_PROVIDERS,
     PRESET_MODELS,
+    XIAOMI_MIMO_DEFAULT_MODEL_KEY,
+    XIAOMI_MIMO_PROVIDER_ID,
     encodeModelKey,
     getProviderKey,
     isPresetComingSoonModelKey,
@@ -24,7 +26,7 @@ import {
     normalizeWorkflowConcurrencyValue,
 } from '@/lib/workflow-concurrency'
 
-interface DefaultModels {
+export interface DefaultModels {
     analysisModel?: string
     characterModel?: string
     locationModel?: string
@@ -75,14 +77,15 @@ export function mergeProvidersForDisplay(
 ): Provider[] {
     const merged: Provider[] = []
     const seenProviderIds = new Set<string>()
-    const seenPresetKeys = new Set<string>()
+    const seenPresetIds = new Set<string>()
 
     for (const savedProvider of savedProviders) {
         if (seenProviderIds.has(savedProvider.id)) continue
         seenProviderIds.add(savedProvider.id)
 
         const providerKey = getProviderKey(savedProvider.id)
-        const matchedPreset = presetProviders.find((presetProvider) => presetProvider.id === providerKey)
+        const matchedPreset = presetProviders.find((presetProvider) => presetProvider.id === savedProvider.id)
+            || presetProviders.find((presetProvider) => presetProvider.id === providerKey)
         if (matchedPreset) {
             const apiKey = savedProvider.apiKey || ''
             const providerBaseUrl = providerKey === 'minimax'
@@ -97,7 +100,7 @@ export function mergeProvidersForDisplay(
                 apiMode: savedProvider.apiMode,
                 gatewayRoute: savedProvider.gatewayRoute,
             })
-            seenPresetKeys.add(providerKey)
+            seenPresetIds.add(matchedPreset.id)
             continue
         }
 
@@ -108,7 +111,7 @@ export function mergeProvidersForDisplay(
     }
 
     for (const presetProvider of presetProviders) {
-        if (seenPresetKeys.has(presetProvider.id)) continue
+        if (seenPresetIds.has(presetProvider.id)) continue
         merged.push({
             ...presetProvider,
             apiKey: '',
@@ -118,6 +121,37 @@ export function mergeProvidersForDisplay(
     }
 
     return merged
+}
+
+export function applyXiaomiMiMoTextDefaults(params: {
+    models: CustomModel[]
+    defaultModels: DefaultModels
+}): { models: CustomModel[]; defaultModels: DefaultModels; changed: boolean } {
+    const hasDefaultModel = params.models.some((model) => model.modelKey === XIAOMI_MIMO_DEFAULT_MODEL_KEY)
+    if (!hasDefaultModel) {
+        return { models: params.models, defaultModels: params.defaultModels, changed: false }
+    }
+
+    let modelsChanged = false
+    const models = params.models.map((model) => {
+        if (model.modelKey !== XIAOMI_MIMO_DEFAULT_MODEL_KEY) return model
+        if (model.enabled && model.llmProtocol === 'chat-completions') return model
+        modelsChanged = true
+        return {
+            ...model,
+            enabled: true,
+            llmProtocol: 'chat-completions' as const,
+        }
+    })
+    const defaultModels = params.defaultModels.analysisModel === XIAOMI_MIMO_DEFAULT_MODEL_KEY
+        ? params.defaultModels
+        : { ...params.defaultModels, analysisModel: XIAOMI_MIMO_DEFAULT_MODEL_KEY }
+
+    return {
+        models,
+        defaultModels,
+        changed: modelsChanged || defaultModels !== params.defaultModels,
+    }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -538,14 +572,28 @@ export function useProviders(): UseProvidersReturn {
 
     // 提供商操作
     const updateProviderApiKey = useCallback((providerId: string, apiKey: string) => {
-        setProviders(prev => {
-            const next = prev.map(p =>
-                p.id === providerId ? { ...p, apiKey, hasApiKey: !!apiKey } : p
-            )
-            latestProvidersRef.current = next
-            void performSave(undefined, true)
-            return next
-        })
+        const nextProviders = latestProvidersRef.current.map(p =>
+            p.id === providerId ? { ...p, apiKey, hasApiKey: !!apiKey } : p
+        )
+        latestProvidersRef.current = nextProviders
+        setProviders(nextProviders)
+
+        let defaultModelsOverride: DefaultModels | undefined
+        if (providerId === XIAOMI_MIMO_PROVIDER_ID && apiKey.trim()) {
+            const applied = applyXiaomiMiMoTextDefaults({
+                models: latestModelsRef.current,
+                defaultModels: latestDefaultModelsRef.current,
+            })
+            if (applied.changed) {
+                latestModelsRef.current = applied.models
+                latestDefaultModelsRef.current = applied.defaultModels
+                setModels(applied.models)
+                setDefaultModels(applied.defaultModels)
+                defaultModelsOverride = applied.defaultModels
+            }
+        }
+
+        void performSave(defaultModelsOverride ? { defaultModels: defaultModelsOverride } : undefined, true)
     }, [performSave])
 
     const updateProviderHidden = useCallback((providerId: string, hidden: boolean) => {

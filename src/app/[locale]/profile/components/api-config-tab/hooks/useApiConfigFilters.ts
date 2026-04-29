@@ -68,7 +68,7 @@ export function useApiConfigFilters({
 
   const isPresetProvider = (providerId: string) => {
     return PRESET_PROVIDERS.some(
-      (provider) => provider.id === getProviderKey(providerId),
+      (provider) => provider.id === providerId || provider.id === getProviderKey(providerId),
     )
   }
 

@@ -331,9 +331,9 @@ MODEL_CATALOG = {
 }
 
 MODEL_BUNDLES = {
-    "starter": ["ltx-video-2b-distilled", "sdxl-sd35-medium", "qwen3-8b-instruct", "cosyvoice3-0.5b"],
-    "balanced": ["wan2.2-ti2v-5b", "flux2-klein-4b", "qwen3-8b-instruct", "f5-tts-v1"],
-    "advanced": ["wan2.2-i2v-a14b", "ltx-video-13b-fp8", "qwen-image-edit", "qwen3-32b-instruct", "indextts2", "fish-speech"],
+    "starter": ["ltx-video-2b-distilled", "sdxl-sd35-medium", "cosyvoice3-0.5b"],
+    "balanced": ["wan2.2-ti2v-5b", "flux2-klein-4b", "f5-tts-v1"],
+    "advanced": ["wan2.2-i2v-a14b", "ltx-video-13b-fp8", "qwen-image-edit", "indextts2", "fish-speech"],
 }
 
 def selected_models():

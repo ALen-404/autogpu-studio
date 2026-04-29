@@ -7,7 +7,13 @@ import {
 import {
   buildCustomPricingFromModelForm,
   buildProviderConnectionPayload,
+  pickConfiguredLlmModel,
 } from '@/app/[locale]/profile/components/api-config/provider-card/hooks/useProviderCardState'
+import {
+  XIAOMI_MIMO_DEFAULT_MODEL_ID,
+  XIAOMI_MIMO_DEFAULT_MODEL_KEY,
+  XIAOMI_MIMO_PROVIDER_ID,
+} from '@/app/[locale]/profile/components/api-config/types'
 
 describe('provider card pricing form behavior', () => {
   it('allows openai-compatible provider to add llm/image/video', () => {
@@ -169,5 +175,24 @@ describe('provider card pricing form behavior', () => {
       baseUrl: 'https://compat.example.com/v1',
       llmModel: 'gpt-4.1-mini',
     })
+  })
+
+  it('uses Xiaomi MiMo preset model for connection test even before the user enables it', () => {
+    const model = pickConfiguredLlmModel({
+      models: [
+        {
+          modelId: XIAOMI_MIMO_DEFAULT_MODEL_ID,
+          modelKey: XIAOMI_MIMO_DEFAULT_MODEL_KEY,
+          name: 'MiMo V2.5 Pro',
+          type: 'llm',
+          provider: XIAOMI_MIMO_PROVIDER_ID,
+          price: 0,
+          enabled: false,
+        },
+      ],
+      defaultAnalysisModel: '',
+    })
+
+    expect(model).toBe(XIAOMI_MIMO_DEFAULT_MODEL_ID)
   })
 })

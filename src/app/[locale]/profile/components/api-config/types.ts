@@ -88,9 +88,20 @@ export interface ApiConfig {
 
 type PresetModel = Omit<CustomModel, 'enabled' | 'modelKey' | 'price'>
 
+export const XIAOMI_MIMO_PROVIDER_ID = 'openai-compatible:xiaomi-mimo'
+export const XIAOMI_MIMO_BASE_URL = 'https://api.xiaomimimo.com/v1'
+export const XIAOMI_MIMO_DEFAULT_MODEL_ID = 'mimo-v2.5-pro'
+export const XIAOMI_MIMO_DEFAULT_MODEL_KEY = composeModelKey(
+    XIAOMI_MIMO_PROVIDER_ID,
+    XIAOMI_MIMO_DEFAULT_MODEL_ID,
+)
+
 // 预设模型
 export const PRESET_MODELS: PresetModel[] = [
     // 文本模型
+    { modelId: XIAOMI_MIMO_DEFAULT_MODEL_ID, name: 'MiMo V2.5 Pro', type: 'llm', provider: XIAOMI_MIMO_PROVIDER_ID, llmProtocol: 'chat-completions' },
+    { modelId: 'mimo-v2.5', name: 'MiMo V2.5', type: 'llm', provider: XIAOMI_MIMO_PROVIDER_ID, llmProtocol: 'chat-completions' },
+    { modelId: 'mimo-v2-flash', name: 'MiMo V2 Flash', type: 'llm', provider: XIAOMI_MIMO_PROVIDER_ID, llmProtocol: 'chat-completions' },
     { modelId: 'google/gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro', type: 'llm', provider: 'openrouter' },
     { modelId: 'google/gemini-3-pro-preview', name: 'Gemini 3 Pro', type: 'llm', provider: 'openrouter' },
     { modelId: 'google/gemini-3-flash-preview', name: 'Gemini 3 Flash', type: 'llm', provider: 'openrouter' },
@@ -198,6 +209,7 @@ export function isPresetComingSoonModelKey(modelKey: string): boolean {
 
 // 预设提供商（API Key 唯一归属于 provider id）
 export const PRESET_PROVIDERS: Omit<Provider, 'apiKey' | 'hasApiKey'>[] = [
+    { id: XIAOMI_MIMO_PROVIDER_ID, name: 'Xiaomi MiMo', baseUrl: XIAOMI_MIMO_BASE_URL, gatewayRoute: 'openai-compat' },
     { id: 'ark', name: 'Volcengine Ark' },
     { id: 'google', name: 'Google AI Studio' },
     { id: 'bailian', name: 'Alibaba Bailian' },
@@ -208,6 +220,7 @@ export const PRESET_PROVIDERS: Omit<Provider, 'apiKey' | 'hasApiKey'>[] = [
 ]
 
 const ZH_PROVIDER_NAME_MAP: Record<string, string> = {
+    [XIAOMI_MIMO_PROVIDER_ID]: '小米 MiMo',
     ark: '火山引擎 Ark',
     minimax: '海螺 MiniMax',
     vidu: '生数科技 Vidu',
@@ -221,7 +234,7 @@ function isZhLocale(locale?: string): boolean {
 
 export function resolvePresetProviderName(providerId: string, fallbackName: string, locale?: string): string {
     if (!isZhLocale(locale)) return fallbackName
-    return ZH_PROVIDER_NAME_MAP[providerId] ?? fallbackName
+    return ZH_PROVIDER_NAME_MAP[providerId] ?? ZH_PROVIDER_NAME_MAP[getProviderKey(providerId)] ?? fallbackName
 }
 
 /**
@@ -241,7 +254,7 @@ export function getProviderKey(providerId?: string): string {
 export function getProviderDisplayName(providerId?: string, locale?: string): string {
     if (!providerId) return ''
     const providerKey = getProviderKey(providerId)
-    const provider = PRESET_PROVIDERS.find(p => p.id === providerKey)
+    const provider = PRESET_PROVIDERS.find(p => p.id === providerId) || PRESET_PROVIDERS.find(p => p.id === providerKey)
     if (!provider) return providerId
     return resolvePresetProviderName(provider.id, provider.name, locale)
 }
@@ -365,6 +378,15 @@ export const PROVIDER_TUTORIALS: ProviderTutorial[] = [
         ]
     },
     {
+        providerId: XIAOMI_MIMO_PROVIDER_ID,
+        steps: [
+            {
+                text: 'xiaomi_mimo_step1',
+                url: 'https://platform.xiaomimimo.com/#/console/api-keys'
+            }
+        ]
+    },
+    {
         providerId: 'openai-compatible',
         steps: [
             {
@@ -399,7 +421,8 @@ export const PROVIDER_TUTORIALS: ProviderTutorial[] = [
  */
 export function getProviderTutorial(providerId: string): ProviderTutorial | undefined {
     const providerKey = getProviderKey(providerId)
-    return PROVIDER_TUTORIALS.find(t => t.providerId === providerKey)
+    return PROVIDER_TUTORIALS.find(t => t.providerId === providerId)
+        || PROVIDER_TUTORIALS.find(t => t.providerId === providerKey)
 }
 
 /**

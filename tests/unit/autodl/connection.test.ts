@@ -475,7 +475,7 @@ describe('AutoDL 连接配置', () => {
     })
     expect(config.models.some((model) => model.type === 'video')).toBe(true)
     expect(config.models.some((model) => model.type === 'image')).toBe(true)
-    expect(config.models.some((model) => model.type === 'llm')).toBe(true)
+    expect(config.models.some((model) => model.type === 'llm')).toBe(false)
     expect(config.models.some((model) => model.type === 'audio')).toBe(true)
   })
 

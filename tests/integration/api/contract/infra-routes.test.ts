@@ -126,11 +126,11 @@ describe('api contract - infra routes (behavior)', () => {
     expect(json.profiles.every((profile) => profile.billingMode === 'user_owned_autodl_account')).toBe(true)
     expect(json.profiles.every((profile) => profile.priceMarkupPercent === 0)).toBe(true)
     expect(json.modelBundles.map((bundle) => bundle.displayName)).toEqual(['低级', '中级', '高级'])
-    expect(json.modelBundles.every((bundle) => bundle.modelIds.length >= 4)).toBe(true)
+    expect(json.modelBundles.every((bundle) => bundle.modelIds.length >= 3)).toBe(true)
     expect(json.modelBundles.flatMap((bundle) => bundle.featureTags)).toEqual(expect.arrayContaining([
       '轻量视频',
       '高清生图',
-      '文字分析',
+      '外部文本',
       '高级 TTS',
     ]))
   })
@@ -158,7 +158,7 @@ describe('api contract - infra routes (behavior)', () => {
     expect(json.models.some((model) => model.id === 'wan2.2-i2v-a14b')).toBe(false)
     expect(json.models.some((model) => model.modality === 'video')).toBe(true)
     expect(json.models.some((model) => model.modality === 'image')).toBe(true)
-    expect(json.models.some((model) => model.modality === 'llm')).toBe(true)
+    expect(json.models.some((model) => model.modality === 'llm')).toBe(false)
     expect(json.models.some((model) => model.modality === 'tts')).toBe(true)
   })
 

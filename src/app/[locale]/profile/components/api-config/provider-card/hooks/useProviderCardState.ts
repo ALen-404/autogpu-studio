@@ -156,14 +156,15 @@ export async function probeModelLlmProtocolViaApi(params: {
   }
 }
 
-function pickConfiguredLlmModel(params: {
+export function pickConfiguredLlmModel(params: {
   models: CustomModel[]
   defaultAnalysisModel?: string
 }): string | undefined {
-  const enabledLlmModels = params.models.filter((model) => model.type === 'llm' && model.enabled)
-  if (enabledLlmModels.length === 0) return undefined
+  const llmModels = params.models.filter((model) => model.type === 'llm')
+  const enabledLlmModels = llmModels.filter((model) => model.enabled)
+  if (llmModels.length === 0) return undefined
   const preferredModel = enabledLlmModels.find((model) => model.modelKey === params.defaultAnalysisModel)
-  return (preferredModel ?? enabledLlmModels[0])?.modelId
+  return (preferredModel ?? enabledLlmModels[0] ?? llmModels[0])?.modelId
 }
 
 export function buildProviderConnectionPayload(params: {
