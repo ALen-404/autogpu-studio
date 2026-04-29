@@ -408,7 +408,7 @@ export function AutoDLTab() {
     }
   }
 
-  async function handleSessionAction(sessionId: string, action: 'sync' | 'power-off' | 'release') {
+  async function handleSessionAction(sessionId: string, action: 'sync' | 'power-on' | 'power-off' | 'release') {
     if (action === 'release' && !window.confirm(t('releaseConfirm'))) return
 
     setSessionBusy(`${sessionId}:${action}`)
@@ -748,6 +748,17 @@ export function AutoDLTab() {
                               <AppIcon name={sessionBusy === `${session.id}:sync` ? 'loader' : 'refresh'} className={`h-3.5 w-3.5 ${sessionBusy === `${session.id}:sync` ? 'animate-spin' : ''}`} />
                               {t('syncSession')}
                             </button>
+                            {session.status === 'stopped' && (
+                              <button
+                                type="button"
+                                onClick={() => handleSessionAction(session.id, 'power-on')}
+                                disabled={sessionBusy !== null || !canOperate}
+                                className="glass-btn-base glass-btn-primary flex items-center gap-2 px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                <AppIcon name={sessionBusy === `${session.id}:power-on` ? 'loader' : 'play'} className={`h-3.5 w-3.5 ${sessionBusy === `${session.id}:power-on` ? 'animate-spin' : ''}`} />
+                                {t('powerOnSession')}
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={() => handleSessionAction(session.id, 'power-off')}

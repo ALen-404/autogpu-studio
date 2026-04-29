@@ -32,6 +32,7 @@ const ROUTE_FILES = [
   'src/app/api/autodl/connection/route.ts',
   'src/app/api/autodl/connection/test/route.ts',
   'src/app/api/autodl/profiles/route.ts',
+  'src/app/api/autodl/sessions/[sessionId]/power-on/route.ts',
   'src/app/api/autodl/sessions/[sessionId]/power-off/route.ts',
   'src/app/api/autodl/sessions/[sessionId]/release/route.ts',
   'src/app/api/autodl/sessions/[sessionId]/sync/route.ts',

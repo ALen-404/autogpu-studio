@@ -93,6 +93,10 @@ export interface AutoDLInstanceActionParams {
   baseUrl?: string
 }
 
+export interface AutoDLPowerOnInstanceParams extends AutoDLInstanceActionParams {
+  startCommand?: string | null
+}
+
 export interface AutoDLInstanceSnapshot {
   payg_price?: number
   origin_pay_price?: number
@@ -467,6 +471,27 @@ export async function powerOffAutoDLInstance(params: AutoDLInstanceActionParams)
     ok: true,
     requestId: payload.request_id,
     message: payload.msg || 'AutoDL 实例关机请求已提交',
+  }
+}
+
+export async function powerOnAutoDLInstance(params: AutoDLPowerOnInstanceParams): Promise<AutoDLActionResult> {
+  const instanceUuid = readNonEmptyString(params.instanceUuid, 'AUTODL_INSTANCE_UUID_REQUIRED')
+  const startCommand = typeof params.startCommand === 'string' ? params.startCommand.trim() : ''
+  const payload = await requestAutoDL<null>({
+    token: params.token,
+    path: '/api/v1/dev/instance/pro/power_on',
+    fetcher: params.fetcher,
+    baseUrl: params.baseUrl,
+    body: {
+      instance_uuid: instanceUuid,
+      payload: 'gpu',
+      ...(startCommand ? { start_command: startCommand } : {}),
+    },
+  })
+  return {
+    ok: true,
+    requestId: payload.request_id,
+    message: payload.msg || 'AutoDL 实例开机请求已提交',
   }
 }
 

@@ -13,6 +13,7 @@ import {
   getAutoDLInstanceStatus,
   getAutoDLWalletBalance,
   listAutoDLInstances,
+  powerOnAutoDLInstance,
   powerOffAutoDLInstance,
   probeAutoDLToken,
   releaseAutoDLInstance,
@@ -259,6 +260,26 @@ describe('AutoDL 连接配置', () => {
     vi.unstubAllEnvs()
   })
 
+  it('启动命令会注入内置 LLM 后端配置', () => {
+    vi.stubEnv('AUTOGPU_LLM_BACKEND', 'transformers')
+    vi.stubEnv('AUTOGPU_LLM_MODEL_QWEN3_8B_INSTRUCT', '/root/autodl-tmp/models/qwen3-8b')
+    vi.stubEnv('AUTOGPU_LLM_DTYPE', 'float16')
+    vi.stubEnv('AUTOGPU_LLM_MAX_NEW_TOKENS', '2048')
+
+    const command = buildAutoDLWorkerStartCommand({
+      serverUrl: 'https://cryptotools.bar',
+      workerSecret: 'secret-123',
+      preferredPort: 6006,
+      modelBundle: 'balanced',
+    })
+
+    expect(command).toContain('AUTOGPU_LLM_BACKEND=transformers')
+    expect(command).toContain('AUTOGPU_LLM_MODEL_QWEN3_8B_INSTRUCT=/root/autodl-tmp/models/qwen3-8b')
+    expect(command).toContain('AUTOGPU_LLM_DTYPE=float16')
+    expect(command).toContain('AUTOGPU_LLM_MAX_NEW_TOKENS=2048')
+    vi.unstubAllEnvs()
+  })
+
   it('启动命令会注入内置 Diffusers 图片后端配置', () => {
     vi.stubEnv('AUTOGPU_IMAGE_BACKEND', 'diffusers')
     vi.stubEnv('AUTOGPU_IMAGE_DIFFUSERS_MODEL', '/root/autodl-tmp/models/sdxl')
@@ -354,6 +375,37 @@ describe('AutoDL 连接配置', () => {
     })
   })
 
+  it('开机实例时会重新注入最新 Worker 启动命令', async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({
+      code: 'Success',
+      data: null,
+      msg: '',
+      request_id: 'req_power_on',
+    }), { status: 200 }))
+
+    await expect(powerOnAutoDLInstance({
+      token: 'autodl-token-123456',
+      instanceUuid: 'pro-test',
+      startCommand: 'AUTOGPU_SERVER_URL=https://cryptotools.bar bash -lc start',
+      fetcher,
+    })).resolves.toMatchObject({
+      ok: true,
+      requestId: 'req_power_on',
+    })
+
+    expect(fetcher).toHaveBeenCalledWith(
+      'https://api.autodl.com/api/v1/dev/instance/pro/power_on',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          instance_uuid: 'pro-test',
+          payload: 'gpu',
+          start_command: 'AUTOGPU_SERVER_URL=https://cryptotools.bar bash -lc start',
+        }),
+      }),
+    )
+  })
+
   it('把 AutoDL 状态和 Worker 健康状态映射为平台会话状态', () => {
     expect(resolveAutoDLSessionRuntimeStatus('running', true, 'http://worker')).toBe('worker_ready')
     expect(resolveAutoDLSessionRuntimeStatus('running', false, 'http://worker')).toBe('running')
@@ -446,6 +498,16 @@ describe('AutoDL 连接配置', () => {
     expect(script).toContain('/v1/autogpu/videos')
     expect(script).toContain('/v1/chat/completions')
     expect(script).toContain('call_direct_backend')
+  })
+
+  it('Worker bootstrap 默认内置 Transformers LLM 后端', () => {
+    const script = buildAutoDLWorkerBootstrapScript()
+
+    expect(script).toContain('AUTOGPU_LLM_BACKEND')
+    expect(script).toContain('call_builtin_llm_backend')
+    expect(script).toContain('AutoModelForCausalLM')
+    expect(script).toContain('Qwen/Qwen3-8B')
+    expect(script).toContain('backend_presence("LLM")')
   })
 
   it('Worker bootstrap 内置 Diffusers 图片后端入口', () => {

@@ -239,10 +239,12 @@ set -Eeuo pipefail
 WORKDIR="\${AUTOGPU_WORKER_DIR:-/root/autogpu-worker}"
 PORT="\${AUTOGPU_WORKER_PORT:-6006}"
 MODEL_BUNDLE="\${AUTOGPU_MODEL_BUNDLE:-default}"
+LLM_BACKEND="\${AUTOGPU_LLM_BACKEND:-transformers}"
 
 export AUTOGPU_WORKER_DIR="$WORKDIR"
 export AUTOGPU_WORKER_PORT="$PORT"
 export AUTOGPU_MODEL_BUNDLE="$MODEL_BUNDLE"
+export AUTOGPU_LLM_BACKEND="$LLM_BACKEND"
 
 mkdir -p "$WORKDIR"
 
@@ -295,15 +297,23 @@ TASKS = {}
 IMAGE_PIPELINE = None
 IMAGE_PIPELINE_KEY = ""
 IMAGE_DEVICE = "cpu"
+LLM_MODEL = None
+LLM_TOKENIZER = None
+LLM_MODEL_KEY = ""
 DEFAULT_IMAGE_MODEL_REFS = {
     "sdxl-sd35-medium": "stabilityai/stable-diffusion-xl-base-1.0",
 }
-# 支持环境变量：AUTOGPU_IMAGE_API_URL、AUTOGPU_VIDEO_API_URL、AUTOGPU_TTS_API_URL。
+DEFAULT_LLM_MODEL_REFS = {
+    "qwen3-8b-instruct": "Qwen/Qwen3-8B",
+    "qwen3-32b-instruct": "Qwen/Qwen3-32B",
+}
+# 支持环境变量：AUTOGPU_IMAGE_API_URL、AUTOGPU_VIDEO_API_URL、AUTOGPU_TTS_API_URL、AUTOGPU_LLM_BACKEND。
 SUPPORTED_BACKEND_ENV_HINTS = (
     "AUTOGPU_IMAGE_API_URL",
     "AUTOGPU_VIDEO_API_URL",
     "AUTOGPU_TTS_API_URL",
     "AUTOGPU_LLM_API_URL",
+    "AUTOGPU_LLM_BACKEND",
 )
 
 class BackendMissing(Exception):
@@ -371,6 +381,9 @@ def normalize_binary_payload(content_type, data):
 
 def image_backend_kind():
     return os.environ.get("AUTOGPU_IMAGE_BACKEND", "").strip().lower()
+
+def llm_backend_kind():
+    return os.environ.get("AUTOGPU_LLM_BACKEND", "transformers").strip().lower()
 
 def safe_env_suffix(value):
     return re.sub(r"[^A-Z0-9]+", "_", value.upper()).strip("_")
@@ -552,6 +565,155 @@ def call_builtin_image_backend(payload):
         "data": [{"url": data_url}],
     }
 
+def resolve_llm_model_ref(payload):
+    payload_model = str(payload.get("model", "") or "").strip()
+    if payload_model:
+        mapped = os.environ.get("AUTOGPU_LLM_MODEL_" + safe_env_suffix(payload_model), "").strip()
+        if mapped:
+            return mapped
+    configured = os.environ.get("AUTOGPU_LLM_TRANSFORMERS_MODEL", "").strip()
+    if configured:
+        return configured
+    if payload_model in DEFAULT_LLM_MODEL_REFS:
+        return DEFAULT_LLM_MODEL_REFS[payload_model]
+    return DEFAULT_LLM_MODEL_REFS["qwen3-8b-instruct"]
+
+def torch_dtype_from_env(torch):
+    dtype_name = os.environ.get("AUTOGPU_LLM_DTYPE", "auto").strip().lower()
+    if dtype_name == "float16":
+        return torch.float16
+    if dtype_name == "bfloat16":
+        return torch.bfloat16
+    if dtype_name == "float32":
+        return torch.float32
+    return "auto"
+
+def load_llm_model(payload):
+    global LLM_MODEL
+    global LLM_TOKENIZER
+    global LLM_MODEL_KEY
+    model_ref = resolve_llm_model_ref(payload)
+    if LLM_MODEL is not None and LLM_TOKENIZER is not None and LLM_MODEL_KEY == model_ref:
+        return LLM_MODEL, LLM_TOKENIZER
+    try:
+        import torch
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+    except Exception as error:
+        raise RuntimeError("backend_dependency_missing: 请在 AutoDL 镜像中安装 torch、transformers、accelerate、safetensors") from error
+    local_only = os.environ.get("AUTOGPU_LLM_LOCAL_FILES_ONLY", "").strip().lower() in ("1", "true", "yes")
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_ref,
+        trust_remote_code=True,
+        local_files_only=local_only,
+    )
+    kwargs = {
+        "trust_remote_code": True,
+        "local_files_only": local_only,
+        "torch_dtype": torch_dtype_from_env(torch),
+    }
+    if torch.cuda.is_available():
+        kwargs["device_map"] = "auto"
+    model = AutoModelForCausalLM.from_pretrained(model_ref, **kwargs)
+    if not torch.cuda.is_available() and hasattr(model, "to"):
+        model = model.to("cpu")
+    if hasattr(model, "eval"):
+        model.eval()
+    LLM_MODEL = model
+    LLM_TOKENIZER = tokenizer
+    LLM_MODEL_KEY = model_ref
+    return LLM_MODEL, LLM_TOKENIZER
+
+def normalize_message_content(content):
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict):
+                text = item.get("text") or item.get("content")
+                if isinstance(text, str):
+                    parts.append(text)
+        return "\n".join(parts)
+    if isinstance(content, dict):
+        text = content.get("text") or content.get("content")
+        return text if isinstance(text, str) else ""
+    return ""
+
+def render_llm_prompt(payload, tokenizer):
+    messages = payload.get("messages")
+    if isinstance(messages, list) and messages:
+        normalized = []
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            role = str(message.get("role", "user") or "user")
+            content = normalize_message_content(message.get("content", ""))
+            normalized.append({"role": role, "content": content})
+        if normalized and hasattr(tokenizer, "apply_chat_template"):
+            try:
+                return tokenizer.apply_chat_template(normalized, tokenize=False, add_generation_prompt=True)
+            except Exception:
+                pass
+        if normalized:
+            return "\n".join([item["role"] + ": " + item["content"] for item in normalized]) + "\nassistant: "
+    prompt = str(payload.get("prompt", "") or payload.get("input", "") or "").strip()
+    if not prompt:
+        raise RuntimeError("LLM_PROMPT_REQUIRED")
+    return prompt
+
+def read_generation_int(payload, key, env_name, default_value):
+    value = payload.get(key)
+    if isinstance(value, int) and value > 0:
+        return value
+    if isinstance(value, float) and value > 0:
+        return int(value)
+    return read_int_env(env_name, default_value)
+
+def read_generation_float(payload, key, default_value):
+    value = payload.get(key)
+    if isinstance(value, (int, float)):
+        return float(value)
+    return default_value
+
+def call_builtin_llm_backend(payload):
+    import torch
+    model, tokenizer = load_llm_model(payload)
+    prompt = render_llm_prompt(payload, tokenizer)
+    inputs = tokenizer(prompt, return_tensors="pt")
+    try:
+        device = next(model.parameters()).device
+        inputs = {key: value.to(device) for key, value in inputs.items()}
+    except Exception:
+        pass
+    max_new_tokens = read_generation_int(payload, "max_tokens", "AUTOGPU_LLM_MAX_NEW_TOKENS", 1024)
+    temperature = read_generation_float(payload, "temperature", 0.6)
+    top_p = read_generation_float(payload, "top_p", 0.95)
+    generate_kwargs = {
+        "max_new_tokens": max_new_tokens,
+        "do_sample": temperature > 0,
+        "temperature": max(0.01, temperature),
+        "top_p": top_p,
+        "pad_token_id": tokenizer.eos_token_id,
+    }
+    with torch.inference_mode():
+        output_ids = model.generate(**inputs, **generate_kwargs)
+    input_length = inputs["input_ids"].shape[-1]
+    generated_ids = output_ids[0][input_length:]
+    text = tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
+    return {
+        "id": "chatcmpl-" + str(uuid.uuid4()),
+        "object": "chat.completion",
+        "created": int(time.time()),
+        "model": str(payload.get("model", "") or LLM_MODEL_KEY or "autogpu-llm"),
+        "choices": [{
+            "index": 0,
+            "message": {"role": "assistant", "content": text},
+            "finish_reason": "stop",
+        }],
+    }
+
 def call_direct_backend(kind, payload):
     url = os.environ.get("AUTOGPU_" + kind + "_API_URL", "").strip()
     if url:
@@ -571,6 +733,9 @@ def call_direct_backend(kind, payload):
 
     if kind == "IMAGE" and image_backend_kind() == "diffusers":
         return call_builtin_image_backend(payload)
+
+    if kind == "LLM" and llm_backend_kind() == "transformers":
+        return call_builtin_llm_backend(payload)
 
     script = backend_script(kind)
     if not os.path.exists(script):
@@ -698,6 +863,8 @@ def fetch_video_status(task_id, stored_task):
 
 def backend_presence(kind):
     if kind == "IMAGE" and image_backend_kind() == "diffusers":
+        return True
+    if kind == "LLM" and llm_backend_kind() == "transformers":
         return True
     return bool(os.environ.get("AUTOGPU_" + kind + "_API_URL", "").strip() or os.path.exists(backend_script(kind)))
 
@@ -876,6 +1043,24 @@ PY
 if ! command -v python3 >/dev/null 2>&1; then
   apt-get update
   DEBIAN_FRONTEND=noninteractive apt-get install -y python3
+fi
+
+if [ "\${AUTOGPU_INSTALL_MODEL_DEPS:-1}" = "1" ] && [ "\${AUTOGPU_LLM_BACKEND:-transformers}" = "transformers" ]; then
+  if ! python3 -m pip --version >/dev/null 2>&1; then
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y python3-pip
+  fi
+  python3 - <<'PY' || true
+import importlib.util
+import subprocess
+import sys
+
+required = []
+if importlib.util.find_spec("transformers") is None:
+    required.extend(["transformers", "accelerate", "safetensors", "sentencepiece"])
+if required:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "-U", *required])
+PY
 fi
 
 if command -v pkill >/dev/null 2>&1; then

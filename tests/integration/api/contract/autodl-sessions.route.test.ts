@@ -13,6 +13,7 @@ const prismaMock = vi.hoisted(() => ({
     findUnique: vi.fn(),
   },
   autoDLInstanceSession: {
+    findFirst: vi.fn(),
     findMany: vi.fn(),
     findUnique: vi.fn(),
     create: vi.fn(),
@@ -22,8 +23,12 @@ const prismaMock = vi.hoisted(() => ({
 
 const autoDLMock = vi.hoisted(() => ({
   decryptAutoDLToken: vi.fn(() => 'autodl-token'),
+  buildSessionStartCommand: vi.fn(),
+  getAutoDLPublicServerUrl: vi.fn(() => 'https://cryptotools.bar'),
   listAutoDLInstances: vi.fn(),
   getAutoDLInstanceSnapshot: vi.fn(),
+  isAutoDLPublicServerUrlReachableFromInstance: vi.fn(() => true),
+  powerOnAutoDLInstance: vi.fn(),
 }))
 
 vi.mock('@/lib/api-auth', () => authMock)
@@ -33,8 +38,12 @@ vi.mock('@/lib/autodl', async () => {
   return {
     ...actual,
     decryptAutoDLToken: autoDLMock.decryptAutoDLToken,
+    buildSessionStartCommand: autoDLMock.buildSessionStartCommand,
+    getAutoDLPublicServerUrl: autoDLMock.getAutoDLPublicServerUrl,
     getAutoDLInstanceSnapshot: autoDLMock.getAutoDLInstanceSnapshot,
+    isAutoDLPublicServerUrlReachableFromInstance: autoDLMock.isAutoDLPublicServerUrlReachableFromInstance,
     listAutoDLInstances: autoDLMock.listAutoDLInstances,
+    powerOnAutoDLInstance: autoDLMock.powerOnAutoDLInstance,
   }
 })
 
@@ -88,6 +97,19 @@ describe('api contract - AutoDL sessions', () => {
       updatedAt: new Date('2026-04-29T05:00:00.000Z'),
       startedAt: new Date('2026-04-29T03:43:11.000Z'),
       releasedAt: null,
+    })
+    prismaMock.autoDLInstanceSession.findFirst.mockResolvedValue(null)
+    autoDLMock.buildSessionStartCommand.mockReturnValue({
+      workerSecret: {
+        plaintext: 'worker-secret',
+        ciphertext: 'encrypted-worker-secret',
+      },
+      startCommand: 'AUTOGPU_SERVER_URL=https://cryptotools.bar bash -lc start',
+    })
+    autoDLMock.powerOnAutoDLInstance.mockResolvedValue({
+      ok: true,
+      message: 'ok',
+      requestId: 'req_power_on',
     })
   })
 
@@ -169,6 +191,67 @@ describe('api contract - AutoDL sessions', () => {
       managedByPlatform: false,
       displayName: 'AutoGPU 中级',
       status: 'running',
+    })
+  })
+
+  it('POST /api/autodl/sessions/:id/power-on 会重新注入最新 Worker 启动命令', async () => {
+    prismaMock.autoDLInstanceSession.findFirst.mockResolvedValue({
+      id: 'session-1',
+      instanceUuid: 'pro-77742ca0bda5',
+      status: 'stopped',
+      modelBundle: 'balanced',
+      connection: {
+        tokenCiphertext: 'encrypted-token',
+        preferredPort: 6006,
+      },
+    })
+    prismaMock.autoDLInstanceSession.update.mockResolvedValue({
+      id: 'session-1',
+      instanceUuid: 'pro-77742ca0bda5',
+      profileId: 'pro6000-p',
+      imageUuid: 'base-image',
+      modelBundle: 'balanced',
+      status: 'booting',
+      autodlStatus: 'booting',
+      workerBaseUrl: null,
+      workerSharedSecretCiphertext: 'encrypted-worker-secret',
+      paygPrice: 1970,
+      createdAt: new Date('2026-04-29T05:00:00.000Z'),
+      updatedAt: new Date('2026-04-29T05:10:00.000Z'),
+      startedAt: new Date('2026-04-29T05:10:00.000Z'),
+      releasedAt: null,
+    })
+
+    const mod = await import('@/app/api/autodl/sessions/[sessionId]/power-on/route')
+    const req = buildMockRequest({
+      path: '/api/autodl/sessions/session-1/power-on',
+      method: 'POST',
+    })
+
+    const res = await mod.POST(req, { params: Promise.resolve({ sessionId: 'session-1' }) })
+    const json = await res.json() as {
+      success: boolean
+      session: { id: string; status: string }
+    }
+
+    expect(res.status).toBe(200)
+    expect(json.success).toBe(true)
+    expect(autoDLMock.powerOnAutoDLInstance).toHaveBeenCalledWith({
+      token: 'autodl-token',
+      instanceUuid: 'pro-77742ca0bda5',
+      startCommand: 'AUTOGPU_SERVER_URL=https://cryptotools.bar bash -lc start',
+    })
+    expect(prismaMock.autoDLInstanceSession.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'session-1' },
+      data: expect.objectContaining({
+        status: 'booting',
+        autodlStatus: 'booting',
+        workerSharedSecretCiphertext: 'encrypted-worker-secret',
+      }),
+    }))
+    expect(json.session).toMatchObject({
+      id: 'session-1',
+      status: 'booting',
     })
   })
 })
