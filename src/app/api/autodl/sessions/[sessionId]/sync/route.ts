@@ -9,7 +9,7 @@ import {
   getAutoDLInstanceSnapshot,
   getAutoDLInstanceStatus,
   normalizeAutoDLPaygPrice,
-  probeAutoDLWorkerHealth,
+  probeAutoDLWorkerReadiness,
   resolveAutoDLSessionRuntimeStatus,
   resolveAutoDLWorkerBaseUrl,
   upsertAutoDLWorkerProvider,
@@ -47,6 +47,7 @@ export const POST = apiHandler(async (
       instanceUuid: true,
       profileId: true,
       modelBundle: true,
+      startedAt: true,
       workerSharedSecretCiphertext: true,
       connection: {
         select: {
@@ -84,11 +85,14 @@ export const POST = apiHandler(async (
   }
 
   let workerHealthy = false
+  let workerUnauthorized = false
   if (workerBaseUrl && session.workerSharedSecretCiphertext) {
-    workerHealthy = await probeAutoDLWorkerHealth({
+    const readiness = await probeAutoDLWorkerReadiness({
       workerBaseUrl,
       workerSecret: decryptAutoDLWorkerSecret(session.workerSharedSecretCiphertext),
     })
+    workerHealthy = readiness.healthy
+    workerUnauthorized = readiness.unauthorized
   }
 
   const provider = workerHealthy && workerBaseUrl && session.workerSharedSecretCiphertext
@@ -102,7 +106,11 @@ export const POST = apiHandler(async (
     }).catch(() => null)
     : null
 
-  const status = resolveAutoDLSessionRuntimeStatus(autodlStatus, workerHealthy, workerBaseUrl)
+  const status = resolveAutoDLSessionRuntimeStatus(autodlStatus, workerHealthy, workerBaseUrl, {
+    workerExpected: !!session.workerSharedSecretCiphertext,
+    workerUnauthorized,
+    startedAt: session.startedAt,
+  })
   const updated = await prisma.autoDLInstanceSession.update({
     where: { id: session.id },
     data: {

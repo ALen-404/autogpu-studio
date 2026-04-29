@@ -420,7 +420,12 @@ export function AutoDLTab() {
       })
       const payload = await response.json() as AutoDLSessionPayload
       if (!response.ok || !payload.success) throw new Error(payload.message || t(`${action.replace('-', '')}Failed`))
-      upsertSession(payload.session)
+      if (action === 'release') {
+        setSessions((current) => current.filter((session) => session.id !== sessionId))
+        void refreshSessions().catch(() => undefined)
+      } else {
+        upsertSession(payload.session)
+      }
       setSessionMessage(t(`${action.replace('-', '')}Success`))
     } catch (err) {
       setError(err instanceof Error && err.message ? err.message : t(`${action.replace('-', '')}Failed`))

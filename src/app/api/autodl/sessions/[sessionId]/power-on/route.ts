@@ -4,8 +4,10 @@ import { apiHandler, ApiError } from '@/lib/api-errors'
 import { prisma } from '@/lib/prisma'
 import {
   buildAutoDLSessionView,
+  buildAutoDLWorkerStartCommand,
   buildSessionStartCommand,
   decryptAutoDLToken,
+  decryptAutoDLWorkerSecret,
   getAutoDLPublicServerUrl,
   isAutoDLPublicServerUrlReachableFromInstance,
   powerOnAutoDLInstance,
@@ -43,6 +45,7 @@ export const POST = apiHandler(async (
       instanceUuid: true,
       status: true,
       modelBundle: true,
+      workerSharedSecretCiphertext: true,
       connection: { select: { tokenCiphertext: true, preferredPort: true } },
     },
   })
@@ -64,11 +67,23 @@ export const POST = apiHandler(async (
   }
 
   const preferredPort = session.connection.preferredPort === 6008 ? 6008 : 6006
-  const start = buildSessionStartCommand({
-    serverUrl,
-    preferredPort,
-    modelBundle: session.modelBundle || 'balanced',
-  })
+  const start = session.workerSharedSecretCiphertext
+    ? {
+      workerSecret: {
+        ciphertext: session.workerSharedSecretCiphertext,
+      },
+      startCommand: buildAutoDLWorkerStartCommand({
+        serverUrl,
+        preferredPort,
+        modelBundle: session.modelBundle || 'balanced',
+        workerSecret: decryptAutoDLWorkerSecret(session.workerSharedSecretCiphertext),
+      }),
+    }
+    : buildSessionStartCommand({
+      serverUrl,
+      preferredPort,
+      modelBundle: session.modelBundle || 'balanced',
+    })
   await powerOnAutoDLInstance({
     token: decryptAutoDLToken(session.connection.tokenCiphertext),
     instanceUuid: session.instanceUuid,

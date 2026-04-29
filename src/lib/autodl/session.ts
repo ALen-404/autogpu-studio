@@ -190,26 +190,58 @@ export function resolveAutoDLSessionRuntimeStatus(
   autodlStatus: string | null | undefined,
   workerHealthy: boolean,
   workerBaseUrl: string | null | undefined,
+  options: {
+    workerExpected?: boolean
+    workerUnauthorized?: boolean
+    startedAt?: Date | string | null
+    now?: Date
+    bootTimeoutMs?: number
+  } = {},
 ): AutoDLSessionStatus {
   const status = (autodlStatus || '').trim().toLowerCase()
   if (status.includes('fail') || status.includes('error')) return 'failed'
   if (status.includes('release') || status.includes('delete')) return 'released'
   if (status.includes('stop') || status.includes('shutdown') || status.includes('poweroff')) return 'stopped'
   if (workerHealthy) return 'worker_ready'
+  if (options.workerUnauthorized) return 'failed'
+  if (options.workerExpected && status === 'running') {
+    const timeoutMs = Math.max(1, options.bootTimeoutMs || 20 * 60 * 1000)
+    const startedAt = toIsoString(options.startedAt)
+    if (startedAt) {
+      const startedAtMs = new Date(startedAt).getTime()
+      const nowMs = (options.now || new Date()).getTime()
+      if (Number.isFinite(startedAtMs) && nowMs - startedAtMs > timeoutMs) return 'failed'
+    }
+    return 'booting'
+  }
   if (workerBaseUrl && status === 'running') return 'running'
   if (status === 'running') return 'running'
   return 'booting'
 }
 
-export async function probeAutoDLWorkerHealth(params: {
+export interface AutoDLWorkerReadiness {
+  healthy: boolean
+  unauthorized: boolean
+  statusCode: number | null
+  message: string | null
+}
+
+export async function probeAutoDLWorkerReadiness(params: {
   workerBaseUrl: string
   workerSecret: string
   fetcher?: typeof fetch
   timeoutMs?: number
-}): Promise<boolean> {
+}): Promise<AutoDLWorkerReadiness> {
   const workerBaseUrl = params.workerBaseUrl.trim().replace(/\/+$/, '')
   const workerSecret = params.workerSecret.trim()
-  if (!workerBaseUrl || !workerSecret) return false
+  if (!workerBaseUrl || !workerSecret) {
+    return {
+      healthy: false,
+      unauthorized: false,
+      statusCode: null,
+      message: 'missing_worker_config',
+    }
+  }
 
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), params.timeoutMs || 5000)
@@ -222,14 +254,33 @@ export async function probeAutoDLWorkerHealth(params: {
       },
       signal: controller.signal,
     })
-    if (!response.ok) return false
-    const payload = await response.json().catch(() => null) as { ok?: unknown } | null
-    return payload?.ok === true
-  } catch {
-    return false
+    const payload = await response.json().catch(() => null) as { ok?: unknown; error?: unknown } | null
+    return {
+      healthy: response.ok && payload?.ok === true,
+      unauthorized: response.status === 401 || response.status === 403,
+      statusCode: response.status,
+      message: typeof payload?.error === 'string' ? payload.error : response.statusText || null,
+    }
+  } catch (error) {
+    return {
+      healthy: false,
+      unauthorized: false,
+      statusCode: null,
+      message: error instanceof Error ? error.message : 'worker_probe_failed',
+    }
   } finally {
     clearTimeout(timeout)
   }
+}
+
+export async function probeAutoDLWorkerHealth(params: {
+  workerBaseUrl: string
+  workerSecret: string
+  fetcher?: typeof fetch
+  timeoutMs?: number
+}): Promise<boolean> {
+  const readiness = await probeAutoDLWorkerReadiness(params)
+  return readiness.healthy
 }
 
 export function buildAutoDLWorkerBootstrapScript(): string {

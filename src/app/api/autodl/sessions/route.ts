@@ -86,7 +86,7 @@ export const GET = apiHandler(async () => {
 
   const [sessions, connection] = await Promise.all([
     prisma.autoDLInstanceSession.findMany({
-      where: { userId },
+      where: { userId, status: { not: 'released' } },
       orderBy: { createdAt: 'desc' },
       take: 20,
       select: sessionSelect,
@@ -101,7 +101,8 @@ export const GET = apiHandler(async () => {
 
   let accountInstanceCount = 0
   let accountInstanceSyncError: string | null = null
-  const localInstanceUuids = new Set(sessions.map((session) => session.instanceUuid).filter((uuid): uuid is string => !!uuid))
+  const visibleSessions = sessions.filter((session) => session.status !== 'released')
+  const localInstanceUuids = new Set(visibleSessions.map((session) => session.instanceUuid).filter((uuid): uuid is string => !!uuid))
   const remoteSessionViews = []
 
   if (connection?.tokenCiphertext) {
@@ -126,7 +127,7 @@ export const GET = apiHandler(async () => {
     untrackedInstanceCount: remoteSessionViews.length,
     accountInstanceSyncError,
     sessions: [
-      ...sessions.map((session) => buildAutoDLSessionView(session, {
+      ...visibleSessions.map((session) => buildAutoDLSessionView(session, {
         managedByPlatform: !!session.workerSharedSecretCiphertext,
       })),
       ...remoteSessionViews,

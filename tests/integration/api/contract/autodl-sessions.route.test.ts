@@ -23,6 +23,8 @@ const prismaMock = vi.hoisted(() => ({
 
 const autoDLMock = vi.hoisted(() => ({
   decryptAutoDLToken: vi.fn(() => 'autodl-token'),
+  decryptAutoDLWorkerSecret: vi.fn(() => 'existing-worker-secret'),
+  buildAutoDLWorkerStartCommand: vi.fn(),
   buildSessionStartCommand: vi.fn(),
   getAutoDLPublicServerUrl: vi.fn(() => 'https://cryptotools.bar'),
   listAutoDLInstances: vi.fn(),
@@ -38,6 +40,8 @@ vi.mock('@/lib/autodl', async () => {
   return {
     ...actual,
     decryptAutoDLToken: autoDLMock.decryptAutoDLToken,
+    decryptAutoDLWorkerSecret: autoDLMock.decryptAutoDLWorkerSecret,
+    buildAutoDLWorkerStartCommand: autoDLMock.buildAutoDLWorkerStartCommand,
     buildSessionStartCommand: autoDLMock.buildSessionStartCommand,
     getAutoDLPublicServerUrl: autoDLMock.getAutoDLPublicServerUrl,
     getAutoDLInstanceSnapshot: autoDLMock.getAutoDLInstanceSnapshot,
@@ -106,6 +110,7 @@ describe('api contract - AutoDL sessions', () => {
       },
       startCommand: 'AUTOGPU_SERVER_URL=https://cryptotools.bar bash -lc start',
     })
+    autoDLMock.buildAutoDLWorkerStartCommand.mockReturnValue('AUTOGPU_WORKER_SECRET=existing-worker-secret bash -lc start')
     autoDLMock.powerOnAutoDLInstance.mockResolvedValue({
       ok: true,
       message: 'ok',
@@ -146,6 +151,71 @@ describe('api contract - AutoDL sessions', () => {
         displayName: 'AutoGPU 中级',
         source: 'autodl',
         managedByPlatform: false,
+        status: 'running',
+      }),
+    ])
+  })
+
+  it('GET /api/autodl/sessions 不再返回已经释放的本地实例记录', async () => {
+    prismaMock.autoDLInstanceSession.findMany.mockResolvedValue([
+      {
+        id: 'released-session',
+        instanceUuid: 'pro-released',
+        profileId: 'pro6000-p',
+        imageUuid: 'image-old',
+        modelBundle: 'balanced',
+        status: 'released',
+        autodlStatus: 'released',
+        workerBaseUrl: 'https://released.example.com:8443',
+        workerSharedSecretCiphertext: 'encrypted-old-secret',
+        paygPrice: 5980,
+        createdAt: new Date('2026-04-29T04:00:00.000Z'),
+        updatedAt: new Date('2026-04-29T04:10:00.000Z'),
+        startedAt: new Date('2026-04-29T04:00:00.000Z'),
+        releasedAt: new Date('2026-04-29T04:10:00.000Z'),
+      },
+      {
+        id: 'active-session',
+        instanceUuid: 'pro-active',
+        profileId: 'pro6000-p',
+        imageUuid: 'image-new',
+        modelBundle: 'balanced',
+        status: 'running',
+        autodlStatus: 'running',
+        workerBaseUrl: 'https://active.example.com:8443',
+        workerSharedSecretCiphertext: 'encrypted-new-secret',
+        paygPrice: 5980,
+        createdAt: new Date('2026-04-29T05:00:00.000Z'),
+        updatedAt: new Date('2026-04-29T05:10:00.000Z'),
+        startedAt: new Date('2026-04-29T05:00:00.000Z'),
+        releasedAt: null,
+      },
+    ])
+    autoDLMock.listAutoDLInstances.mockResolvedValue({
+      total: 1,
+      instances: [],
+    })
+
+    const mod = await import('@/app/api/autodl/sessions/route')
+    const req = buildMockRequest({
+      path: '/api/autodl/sessions',
+      method: 'GET',
+    })
+
+    const res = await mod.GET(req, { params: Promise.resolve({}) })
+    const json = await res.json() as {
+      success: boolean
+      sessions: Array<{ id: string; status: string }>
+    }
+
+    expect(res.status).toBe(200)
+    expect(json.success).toBe(true)
+    expect(prismaMock.autoDLInstanceSession.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { userId: 'user-1', status: { not: 'released' } },
+    }))
+    expect(json.sessions).toEqual([
+      expect.objectContaining({
+        id: 'active-session',
         status: 'running',
       }),
     ])
@@ -253,5 +323,67 @@ describe('api contract - AutoDL sessions', () => {
       id: 'session-1',
       status: 'booting',
     })
+  })
+
+  it('POST /api/autodl/sessions/:id/power-on 会复用已有 Worker 密钥，避免开机后认证不一致', async () => {
+    prismaMock.autoDLInstanceSession.findFirst.mockResolvedValue({
+      id: 'session-1',
+      instanceUuid: 'pro-77742ca0bda5',
+      status: 'stopped',
+      modelBundle: 'balanced',
+      workerSharedSecretCiphertext: 'existing-worker-secret-cipher',
+      connection: {
+        tokenCiphertext: 'encrypted-token',
+        preferredPort: 6006,
+      },
+    })
+    prismaMock.autoDLInstanceSession.update.mockResolvedValue({
+      id: 'session-1',
+      instanceUuid: 'pro-77742ca0bda5',
+      profileId: 'pro6000-p',
+      imageUuid: 'base-image',
+      modelBundle: 'balanced',
+      status: 'booting',
+      autodlStatus: 'booting',
+      workerBaseUrl: null,
+      workerSharedSecretCiphertext: 'existing-worker-secret-cipher',
+      paygPrice: 1970,
+      createdAt: new Date('2026-04-29T05:00:00.000Z'),
+      updatedAt: new Date('2026-04-29T05:10:00.000Z'),
+      startedAt: new Date('2026-04-29T05:10:00.000Z'),
+      releasedAt: null,
+    })
+
+    const mod = await import('@/app/api/autodl/sessions/[sessionId]/power-on/route')
+    const req = buildMockRequest({
+      path: '/api/autodl/sessions/session-1/power-on',
+      method: 'POST',
+    })
+
+    const res = await mod.POST(req, { params: Promise.resolve({ sessionId: 'session-1' }) })
+    const json = await res.json() as {
+      success: boolean
+      session: { id: string; status: string }
+    }
+
+    expect(res.status).toBe(200)
+    expect(json.success).toBe(true)
+    expect(autoDLMock.decryptAutoDLWorkerSecret).toHaveBeenCalledWith('existing-worker-secret-cipher')
+    expect(autoDLMock.buildAutoDLWorkerStartCommand).toHaveBeenCalledWith(expect.objectContaining({
+      serverUrl: 'https://cryptotools.bar',
+      workerSecret: 'existing-worker-secret',
+      modelBundle: 'balanced',
+    }))
+    expect(autoDLMock.buildSessionStartCommand).not.toHaveBeenCalled()
+    expect(autoDLMock.powerOnAutoDLInstance).toHaveBeenCalledWith({
+      token: 'autodl-token',
+      instanceUuid: 'pro-77742ca0bda5',
+      startCommand: 'AUTOGPU_WORKER_SECRET=existing-worker-secret bash -lc start',
+    })
+    expect(prismaMock.autoDLInstanceSession.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        workerSharedSecretCiphertext: 'existing-worker-secret-cipher',
+      }),
+    }))
   })
 })

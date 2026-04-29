@@ -21,6 +21,7 @@ import {
 } from '@/lib/autodl/client'
 import {
   buildAutoDLWorkerBootstrapScript,
+  probeAutoDLWorkerReadiness,
   resolveAutoDLSessionRuntimeStatus,
 } from '@/lib/autodl/session'
 import { buildAutoDLWorkerProviderConfig } from '@/lib/autodl/provider'
@@ -409,8 +410,33 @@ describe('AutoDL 连接配置', () => {
   it('把 AutoDL 状态和 Worker 健康状态映射为平台会话状态', () => {
     expect(resolveAutoDLSessionRuntimeStatus('running', true, 'http://worker')).toBe('worker_ready')
     expect(resolveAutoDLSessionRuntimeStatus('running', false, 'http://worker')).toBe('running')
+    expect(resolveAutoDLSessionRuntimeStatus('running', false, 'http://worker', {
+      workerExpected: true,
+      startedAt: new Date(Date.now() - 5 * 60 * 1000),
+    })).toBe('booting')
+    expect(resolveAutoDLSessionRuntimeStatus('running', false, 'http://worker', {
+      workerExpected: true,
+      workerUnauthorized: true,
+    })).toBe('failed')
     expect(resolveAutoDLSessionRuntimeStatus('stopped', false, null)).toBe('stopped')
     expect(resolveAutoDLSessionRuntimeStatus('failed', false, null)).toBe('failed')
+  })
+
+  it('探测 Worker 健康时会区分密钥不匹配', async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({
+      ok: false,
+      error: 'unauthorized',
+    }), { status: 401 }))
+
+    await expect(probeAutoDLWorkerReadiness({
+      workerBaseUrl: 'https://worker.example.com',
+      workerSecret: 'secret-123',
+      fetcher,
+    })).resolves.toMatchObject({
+      healthy: false,
+      unauthorized: true,
+      statusCode: 401,
+    })
   })
 
   it('生成可在 AutoDL start_command 中拉取的最小 Worker 脚本', () => {
