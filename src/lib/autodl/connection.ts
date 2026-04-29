@@ -54,11 +54,14 @@ const AUTODL_DEFAULT_IMAGE_UUID_ENV_KEYS: Record<AutoDLProfileId, string> = {
   'pro6000-p': 'AUTODL_DEFAULT_IMAGE_UUID_PRO6000_P',
 }
 
-export function getAutoDLDefaultImageUuid(profileId?: AutoDLProfileId | null): string | null {
+// AutoDL 官方公共基础镜像：PyTorch 2.0.0 / Python 3.8 / CUDA 11.8 / Ubuntu 22.04。
+export const AUTODL_PUBLIC_BASE_IMAGE_UUID = 'base-image-l2t43iu6uk'
+
+export function getAutoDLDefaultImageUuid(profileId?: AutoDLProfileId | null): string {
   const profileImageUuid = profileId
     ? readTrimmedString(process.env[AUTODL_DEFAULT_IMAGE_UUID_ENV_KEYS[profileId]])
     : ''
-  return profileImageUuid || readTrimmedString(process.env.AUTODL_DEFAULT_IMAGE_UUID) || null
+  return profileImageUuid || readTrimmedString(process.env.AUTODL_DEFAULT_IMAGE_UUID) || AUTODL_PUBLIC_BASE_IMAGE_UUID
 }
 
 function toIsoString(value: Date | string | null | undefined): string | null {

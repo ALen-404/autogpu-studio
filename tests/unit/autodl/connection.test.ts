@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  AUTODL_PUBLIC_BASE_IMAGE_UUID,
   buildAutoDLWorkerStartCommand,
+  getAutoDLDefaultImageUuid,
   maskAutoDLToken,
   normalizeAutoDLConnectionInput,
   normalizeAutoDLTokenInput,
@@ -9,6 +11,7 @@ import {
   createAutoDLInstance,
   getAutoDLInstanceSnapshot,
   getAutoDLInstanceStatus,
+  getAutoDLWalletBalance,
   powerOffAutoDLInstance,
   probeAutoDLToken,
   releaseAutoDLInstance,
@@ -33,6 +36,19 @@ describe('AutoDL 连接配置', () => {
   it('只允许 AutoDL 映射端口 6006 或 6008', () => {
     expect(normalizeAutoDLConnectionInput({ preferredPort: 6008 }).preferredPort).toBe(6008)
     expect(() => normalizeAutoDLConnectionInput({ preferredPort: 3000 })).toThrow('AUTODL_PORT_INVALID')
+  })
+
+  it('没有配置私有镜像时会自动使用 AutoDL 官方基础镜像', () => {
+    vi.stubEnv('AUTODL_DEFAULT_IMAGE_UUID', '')
+    vi.stubEnv('AUTODL_DEFAULT_IMAGE_UUID_5090_P', '')
+    vi.stubEnv('AUTODL_DEFAULT_IMAGE_UUID_PRO6000_P', '')
+
+    expect(getAutoDLDefaultImageUuid('5090-p')).toBe(AUTODL_PUBLIC_BASE_IMAGE_UUID)
+
+    vi.stubEnv('AUTODL_DEFAULT_IMAGE_UUID_5090_P', 'image-5090-private')
+    expect(getAutoDLDefaultImageUuid('5090-p')).toBe('image-5090-private')
+    expect(getAutoDLDefaultImageUuid('pro6000-p')).toBe(AUTODL_PUBLIC_BASE_IMAGE_UUID)
+    vi.unstubAllEnvs()
   })
 
   it('使用 AutoDL 开发者 Token 探测实例列表', async () => {
@@ -62,6 +78,34 @@ describe('AutoDL 连接配置', () => {
           'Content-Type': 'application/json',
         }),
         body: JSON.stringify({ page_index: 1, page_size: 1 }),
+      }),
+    )
+  })
+
+  it('按 AutoDL 官方余额字段解析账号余额', async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({
+      code: 'Success',
+      data: {
+        assets: 123450,
+        voucher: 5000,
+      },
+      msg: '',
+      request_id: 'req_balance',
+    }), { status: 200 }))
+
+    const result = await getAutoDLWalletBalance({
+      token: 'autodl-token-123456',
+      fetcher,
+    })
+
+    expect(result.rawBalance).toBe(123450)
+    expect(result.balanceCny).toBe(123.45)
+    expect(result.displayBalance).toBe('¥123.45')
+    expect(fetcher).toHaveBeenCalledWith(
+      'https://api.autodl.com/api/v1/dev/wallet/balance',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({}),
       }),
     )
   })

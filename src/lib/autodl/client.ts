@@ -121,7 +121,7 @@ function readBalanceNumber(value: unknown): number | null {
   }
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     const raw = value as Record<string, unknown>
-    for (const key of ['balance', 'wallet_balance', 'walletBalance', 'amount', 'money']) {
+    for (const key of ['assets', 'balance', 'wallet_balance', 'walletBalance', 'amount', 'money', 'available', 'availableBalance', 'cash']) {
       const parsed = readBalanceNumber(raw[key])
       if (parsed !== null) return parsed
     }

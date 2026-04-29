@@ -95,6 +95,7 @@ describe('api contract - infra routes (behavior)', () => {
     const json = await res.json() as {
       success: boolean
       officialUrl: string
+      defaultImageReadyByProfile: Record<string, boolean>
       connectionModes: Array<{ id: string }>
       modelBundles: Array<{
         id: string
@@ -115,6 +116,10 @@ describe('api contract - infra routes (behavior)', () => {
     expect(json.success).toBe(true)
     expect(json.officialUrl).toBe('https://www.autodl.com/home')
     expect(json.connectionModes.map((mode) => mode.id)).toEqual(['manual', 'user_api_key'])
+    expect(json.defaultImageReadyByProfile).toMatchObject({
+      'pro6000-p': true,
+      '5090-p': true,
+    })
     expect(json.profiles.map((profile) => profile.id)).toEqual(['pro6000-p', '5090-p'])
     expect(json.profiles.map((profile) => profile.displayName)).toEqual(['PRO6000', 'RTX 5090'])
     expect(json.profiles.every((profile) => profile.resaleAllowed === false)).toBe(true)

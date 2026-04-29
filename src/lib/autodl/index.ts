@@ -20,6 +20,7 @@ export {
   type LocalModelModality,
 } from './catalog'
 export {
+  AUTODL_PUBLIC_BASE_IMAGE_UUID,
   buildAutoDLConnectionView,
   buildAutoDLWorkerStartCommand,
   decryptAutoDLToken,
