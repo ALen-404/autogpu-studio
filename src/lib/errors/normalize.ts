@@ -68,6 +68,7 @@ function isModelNotConfiguredMessage(message: string): boolean {
   return containsAny(message, [
     'model_not_found',
     'model_not_configured',
+    'model not configured',
     'is not enabled for image',
     'is not enabled for video',
     'is not enabled for audio',
@@ -83,6 +84,13 @@ function isModelNotConfiguredMessage(message: string): boolean {
     'multiple audio models are enabled',
     'multiple lipsync models are enabled',
     'multiple llm models are enabled',
+  ])
+}
+
+function isProviderApiKeyMissingMessage(message: string): boolean {
+  return containsAny(message, [
+    'provider_api_key_missing',
+    'provider api key missing',
   ])
 }
 
@@ -165,6 +173,7 @@ function inferCodeFromMessage(message: string): UnifiedErrorCode | null {
 
   if (isModelNotOpenMessage(message)) return 'MODEL_NOT_OPEN'
   if (isModelNotRegisteredMessage(message)) return 'MODEL_NOT_REGISTERED'
+  if (isProviderApiKeyMissingMessage(message)) return 'MISSING_CONFIG'
   if (isModelNotConfiguredMessage(message)) return 'MODEL_NOT_CONFIGURED'
   if (isEmptyResponseMessage(message)) return 'EMPTY_RESPONSE'
   if (isVideoApiFormatUnsupportedMessage(message)) return 'VIDEO_API_FORMAT_UNSUPPORTED'
@@ -254,6 +263,9 @@ export function normalizeAnyError(input: unknown, options: NormalizeOptions = {}
   if (isModelNotRegisteredMessage(lowerMessage)) {
     return buildNormalizedError('MODEL_NOT_REGISTERED', message, options.details, provider)
   }
+  if (isProviderApiKeyMissingMessage(lowerMessage)) {
+    return buildNormalizedError('MISSING_CONFIG', message, options.details, provider)
+  }
   if (isModelNotConfiguredMessage(lowerMessage)) {
     return buildNormalizedError('MODEL_NOT_CONFIGURED', message, options.details, provider)
   }
@@ -311,6 +323,23 @@ export function normalizeTaskError(
 
   const resolvedTaskCode = resolveUnifiedErrorCode(code)
   if (resolvedTaskCode) {
+    if (resolvedTaskCode === 'INTERNAL_ERROR' && message) {
+      const inferred = normalizeAnyError(
+        { message, details },
+        { fallbackCode: resolvedTaskCode },
+      )
+
+      if (inferred.code !== resolvedTaskCode) {
+        return {
+          ...inferred,
+          details: {
+            ...(inferred.details || {}),
+            originalCode: code,
+          },
+        }
+      }
+    }
+
     return buildNormalizedError(resolvedTaskCode, message || undefined, details)
   }
 

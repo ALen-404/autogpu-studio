@@ -97,6 +97,13 @@ function parseCapabilitySelections(raw: string | null | undefined): CapabilitySe
   }
 }
 
+function resolveModelConfigValue(
+  projectValue: string | null | undefined,
+  userValue: string | null | undefined,
+): string | null {
+  return extractModelKey(projectValue) || extractModelKey(userValue) || null
+}
+
 export interface ProjectModelConfig {
   analysisModel: string | null
   characterModel: string | null
@@ -154,15 +161,15 @@ export async function getProjectModelConfig(
   ])
 
   return {
-    analysisModel: extractModelKey(projectData?.analysisModel) || extractModelKey(userPref?.analysisModel) || null,
-    characterModel: extractModelKey(projectData?.characterModel) || null,
-    locationModel: extractModelKey(projectData?.locationModel) || null,
-    storyboardModel: extractModelKey(projectData?.storyboardModel) || null,
-    editModel: extractModelKey(projectData?.editModel) || null,
-    videoModel: extractModelKey(projectData?.videoModel) || null,
-    audioModel: extractModelKey(projectData?.audioModel) || extractModelKey(userPref?.audioModel) || null,
-    videoRatio: projectData?.videoRatio || '16:9',
-    artStyle: projectData?.artStyle || null,
+    analysisModel: resolveModelConfigValue(projectData?.analysisModel, userPref?.analysisModel),
+    characterModel: resolveModelConfigValue(projectData?.characterModel, userPref?.characterModel),
+    locationModel: resolveModelConfigValue(projectData?.locationModel, userPref?.locationModel),
+    storyboardModel: resolveModelConfigValue(projectData?.storyboardModel, userPref?.storyboardModel),
+    editModel: resolveModelConfigValue(projectData?.editModel, userPref?.editModel),
+    videoModel: resolveModelConfigValue(projectData?.videoModel, userPref?.videoModel),
+    audioModel: resolveModelConfigValue(projectData?.audioModel, userPref?.audioModel),
+    videoRatio: projectData?.videoRatio || userPref?.videoRatio || '16:9',
+    artStyle: projectData?.artStyle || userPref?.artStyle || null,
     capabilityDefaults: parseCapabilitySelections(userPref?.capabilityDefaults),
     capabilityOverrides: parseCapabilitySelections(projectData?.capabilityOverrides),
   }
