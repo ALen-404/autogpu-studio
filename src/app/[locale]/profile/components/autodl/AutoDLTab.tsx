@@ -1,12 +1,13 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { AppIcon } from '@/components/ui/icons'
 import { apiFetch } from '@/lib/api-fetch'
 
 type AutoDLProfileId = 'pro6000-p' | '5090-p'
 type AutoDLPreferredPort = 6006 | 6008
+type AutoDLModelBundleId = 'starter' | 'balanced' | 'advanced'
 
 interface AutoDLProfile {
   id: AutoDLProfileId
@@ -18,14 +19,15 @@ interface AutoDLProfile {
   priceMarkupPercent: number
 }
 
-interface LocalModel {
-  id: string
-  name: string
-  modality: 'video' | 'image' | 'tts'
+interface AutoDLModelBundle {
+  id: AutoDLModelBundleId
+  displayName: string
+  tagline: string
+  description: string
   supportedProfileIds: AutoDLProfileId[]
   recommendedProfileId: AutoDLProfileId
-  status: 'supported' | 'experimental'
-  licenseNote: string
+  modelIds: string[]
+  featureTags: string[]
 }
 
 interface ProfilesPayload {
@@ -33,13 +35,18 @@ interface ProfilesPayload {
   officialUrl: string
   defaultProfileId: AutoDLProfileId
   defaultImageReadyByProfile?: Partial<Record<AutoDLProfileId, boolean>>
+  modelBundles?: AutoDLModelBundle[]
   profiles: AutoDLProfile[]
 }
 
-interface LocalModelsPayload {
+interface AutoDLBalancePayload {
   success: boolean
-  profileId: AutoDLProfileId
-  models: LocalModel[]
+  balance?: {
+    rawBalance: number | null
+    balanceCny: number | null
+    displayBalance: string
+  }
+  message?: string
 }
 
 interface AutoDLConnection {
@@ -98,8 +105,7 @@ interface AutoDLSessionPayload {
   message?: string
 }
 
-const AUTODL_PORTS: AutoDLPreferredPort[] = [6006, 6008]
-const DEFAULT_MODEL_BUNDLE = 'default'
+const DEFAULT_MODEL_BUNDLE: AutoDLModelBundleId = 'balanced'
 
 function formatDateTime(value: string | null) {
   if (!value) return ''
@@ -114,20 +120,35 @@ export function AutoDLTab() {
   const [profiles, setProfiles] = useState<AutoDLProfile[]>([])
   const [officialUrl, setOfficialUrl] = useState('https://www.autodl.com/home')
   const [selectedProfileId, setSelectedProfileId] = useState<AutoDLProfileId>('5090-p')
-  const [models, setModels] = useState<LocalModel[]>([])
+  const [modelBundles, setModelBundles] = useState<AutoDLModelBundle[]>([])
   const [sessions, setSessions] = useState<AutoDLSession[]>([])
   const [connection, setConnection] = useState<AutoDLConnection | null>(null)
   const [apiToken, setApiToken] = useState('')
+  const [balanceText, setBalanceText] = useState('')
   const [defaultImageReadyByProfile, setDefaultImageReadyByProfile] = useState<Partial<Record<AutoDLProfileId, boolean>>>({})
   const [preferredPort, setPreferredPort] = useState<AutoDLPreferredPort>(6006)
-  const [selectedModelBundle, setSelectedModelBundle] = useState(DEFAULT_MODEL_BUNDLE)
+  const [selectedModelBundle, setSelectedModelBundle] = useState<AutoDLModelBundleId>(DEFAULT_MODEL_BUNDLE)
   const [loading, setLoading] = useState(true)
-  const [modelsLoading, setModelsLoading] = useState(false)
   const [connectionBusy, setConnectionBusy] = useState<'save' | 'test' | 'delete' | null>(null)
+  const [balanceBusy, setBalanceBusy] = useState(false)
   const [sessionBusy, setSessionBusy] = useState<string | null>(null)
   const [connectionMessage, setConnectionMessage] = useState<string | null>(null)
   const [sessionMessage, setSessionMessage] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  const refreshBalance = useCallback(async () => {
+    setBalanceBusy(true)
+    try {
+      const response = await apiFetch('/api/autodl/balance')
+      const payload = await response.json() as AutoDLBalancePayload
+      if (!response.ok || !payload.success) throw new Error(payload.message || 'balance')
+      setBalanceText(payload.balance?.displayBalance || t('balanceUnknown'))
+    } catch {
+      setBalanceText(t('balanceUnknown'))
+    } finally {
+      setBalanceBusy(false)
+    }
+  }, [t])
 
   useEffect(() => {
     let cancelled = false
@@ -148,12 +169,14 @@ export function AutoDLTab() {
         if (!payload.success || !Array.isArray(payload.profiles)) throw new Error('profiles')
         if (cancelled) return
         setProfiles(payload.profiles)
+        setModelBundles(Array.isArray(payload.modelBundles) ? payload.modelBundles : [])
         setOfficialUrl(payload.officialUrl || 'https://www.autodl.com/home')
         setDefaultImageReadyByProfile(payload.defaultImageReadyByProfile || {})
         setConnection(connectionPayload.connection || null)
         setSelectedProfileId(connectionPayload.connection?.defaultProfileId || payload.defaultProfileId || '5090-p')
         setPreferredPort(connectionPayload.connection?.preferredPort || 6006)
         setSessions(Array.isArray(sessionsPayload.sessions) ? sessionsPayload.sessions : [])
+        if (connectionPayload.connection?.configured) void refreshBalance()
       } catch {
         if (!cancelled) setError(t('loadFailed'))
       } finally {
@@ -166,48 +189,27 @@ export function AutoDLTab() {
     return () => {
       cancelled = true
     }
-  }, [t])
-
-  useEffect(() => {
-    let cancelled = false
-
-    async function loadModels() {
-      setModelsLoading(true)
-      try {
-        const response = await apiFetch(`/api/local-models?profileId=${encodeURIComponent(selectedProfileId)}`)
-        if (!response.ok) throw new Error('models')
-        const payload = await response.json() as LocalModelsPayload
-        if (!payload.success || !Array.isArray(payload.models)) throw new Error('models')
-        if (!cancelled) setModels(payload.models)
-      } catch {
-        if (!cancelled) setError(t('loadFailed'))
-      } finally {
-        if (!cancelled) setModelsLoading(false)
-      }
-    }
-
-    void loadModels()
-
-    return () => {
-      cancelled = true
-    }
-  }, [selectedProfileId, t])
+  }, [refreshBalance, t])
 
   const selectedProfile = profiles.find((profile) => profile.id === selectedProfileId)
   const connectionStatus = connection?.status || 'unconfigured'
   const tokenUpdatedAt = formatDateTime(connection?.tokenUpdatedAt || null)
   const probeAt = formatDateTime(connection?.lastProbeAt || null)
-  const selectedBundleName = selectedModelBundle === DEFAULT_MODEL_BUNDLE
-    ? t('modelBundleDefault')
-    : models.find((model) => model.id === selectedModelBundle)?.name || selectedModelBundle
+  const availableBundles = useMemo(
+    () => modelBundles.filter((bundle) => bundle.supportedProfileIds.includes(selectedProfileId)),
+    [modelBundles, selectedProfileId],
+  )
+  const selectedBundle = availableBundles.find((bundle) => bundle.id === selectedModelBundle) || availableBundles[0] || null
+  const selectedBundleName = selectedBundle?.displayName || t('modelBundleBalanced')
   const imageReady = !!connection?.defaultImageUuid || !!defaultImageReadyByProfile[selectedProfileId]
-  const canStartSession = sessionBusy === null && !!connection?.configured && imageReady
+  const canStartSession = sessionBusy === null && !!connection?.configured && imageReady && !!selectedBundle
 
   useEffect(() => {
-    if (selectedModelBundle !== DEFAULT_MODEL_BUNDLE && !models.some((model) => model.id === selectedModelBundle)) {
-      setSelectedModelBundle(DEFAULT_MODEL_BUNDLE)
+    if (availableBundles.length === 0) return
+    if (!availableBundles.some((bundle) => bundle.id === selectedModelBundle)) {
+      setSelectedModelBundle((availableBundles.find((bundle) => bundle.id === DEFAULT_MODEL_BUNDLE) || availableBundles[0]).id)
     }
-  }, [models, selectedModelBundle])
+  }, [availableBundles, selectedModelBundle])
 
   function upsertSession(nextSession: AutoDLSession | null | undefined) {
     if (!nextSession) return
@@ -230,6 +232,11 @@ export function AutoDLTab() {
   function formatPaygPrice(value: number | null) {
     if (typeof value !== 'number') return t('unknownPrice')
     return String(value)
+  }
+
+  function getBundleName(bundleId: string | null | undefined) {
+    if (!bundleId) return t('modelBundleBalanced')
+    return modelBundles.find((bundle) => bundle.id === bundleId)?.displayName || t('modelBundleBalanced')
   }
 
   async function handleSaveConnection() {
@@ -257,6 +264,7 @@ export function AutoDLTab() {
       setConnection(payload.connection)
       setApiToken('')
       setConnectionMessage(t('saveSuccess'))
+      void refreshBalance()
     } catch {
       setError(t('saveFailed'))
     } finally {
@@ -283,6 +291,7 @@ export function AutoDLTab() {
         ? t('probeInstanceCount', { count: payload.probe.instanceCount })
         : ''
       setConnectionMessage(`${payload.probe?.message || t('testSuccess')}${countText ? ` · ${countText}` : ''}`)
+      void refreshBalance()
     } catch (err) {
       setError(err instanceof Error && err.message ? err.message : t('testFailed'))
     } finally {
@@ -304,6 +313,7 @@ export function AutoDLTab() {
       if (!response.ok || !payload.success) throw new Error('delete')
       setConnection(payload.connection)
       setApiToken('')
+      setBalanceText('')
       setPreferredPort(6006)
       setConnectionMessage(t('deleteSuccess'))
     } catch {
@@ -432,40 +442,25 @@ export function AutoDLTab() {
                   />
                 </label>
 
-                <details className="rounded-xl border border-[var(--glass-stroke-subtle)] bg-[var(--glass-bg-surface)] px-3 py-2">
-                  <summary className="cursor-pointer text-xs font-medium text-[var(--glass-text-secondary)]">{t('advancedSettings')}</summary>
-                  <div className="mt-3 grid gap-3 sm:grid-cols-[1fr_180px]">
-                    <div className="rounded-xl border border-[var(--glass-stroke-base)] bg-[var(--glass-bg-muted)] px-3 py-2">
-                      <span className="block text-xs font-medium text-[var(--glass-text-tertiary)]">{t('platformImageTitle')}</span>
-                      <span className={`mt-2 inline-flex rounded-full px-2 py-1 text-xs ${
-                        imageReady
-                          ? 'bg-[var(--glass-tone-success-bg)] text-[var(--glass-tone-success-fg)]'
-                          : 'bg-[var(--glass-tone-warning-bg)] text-[var(--glass-tone-warning-fg)]'
-                      }`}>
-                        {imageReady ? t('platformImageReady') : t('platformImageMissing')}
+                <div className="rounded-xl border border-[var(--glass-stroke-subtle)] bg-[var(--glass-bg-surface)] px-3 py-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <span className="block text-xs font-medium text-[var(--glass-text-tertiary)]">{t('balanceTitle')}</span>
+                      <span className="mt-1 block text-sm font-semibold text-[var(--glass-text-primary)]">
+                        {connection?.configured ? (balanceText || t('balanceNotLoaded')) : t('balanceRequiresToken')}
                       </span>
                     </div>
-                    <div>
-                      <span className="block text-xs font-medium text-[var(--glass-text-tertiary)]">{t('preferredPort')}</span>
-                      <div className="mt-2 grid grid-cols-2 gap-2">
-                        {AUTODL_PORTS.map((port) => (
-                          <button
-                            key={port}
-                            type="button"
-                            onClick={() => setPreferredPort(port)}
-                            className={`rounded-xl border px-3 py-2 text-sm transition ${
-                              preferredPort === port
-                                ? 'border-[var(--glass-tone-info-fg)] bg-[var(--glass-tone-info-bg)]/20 text-[var(--glass-text-primary)]'
-                                : 'border-[var(--glass-stroke-base)] bg-[var(--glass-bg-muted)] text-[var(--glass-text-secondary)]'
-                            }`}
-                          >
-                            {port}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void refreshBalance()}
+                      disabled={!connection?.configured || balanceBusy}
+                      className="glass-btn-base glass-btn-secondary flex items-center gap-2 px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <AppIcon name={balanceBusy ? 'loader' : 'refresh'} className={`h-3.5 w-3.5 ${balanceBusy ? 'animate-spin' : ''}`} />
+                      {balanceBusy ? t('balanceLoading') : t('refreshBalance')}
+                    </button>
                   </div>
-                </details>
+                </div>
 
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="text-xs text-[var(--glass-text-tertiary)]">
@@ -597,25 +592,43 @@ export function AutoDLTab() {
               </button>
             </div>
 
-            <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(220px,0.45fr)]">
-              <label className="block">
+            <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(220px,0.35fr)]">
+              <div>
                 <span className="block text-xs font-medium text-[var(--glass-text-tertiary)]">{t('modelBundleLabel')}</span>
-                <select
-                  value={selectedModelBundle}
-                  onChange={(event) => setSelectedModelBundle(event.target.value)}
-                  className="mt-2 w-full rounded-xl border border-[var(--glass-stroke-base)] bg-[var(--glass-bg-surface)] px-3 py-2 text-sm text-[var(--glass-text-primary)] outline-none transition focus:border-[var(--glass-tone-info-fg)]"
-                >
-                  <option value={DEFAULT_MODEL_BUNDLE}>{t('modelBundleDefault')}</option>
-                  {models.map((model) => (
-                    <option key={model.id} value={model.id}>
-                      {model.name}
-                    </option>
-                  ))}
-                </select>
-                <span className="mt-2 block text-[11px] text-[var(--glass-text-tertiary)]">
-                  {modelsLoading ? tc('loading') : t('modelCount', { count: models.length })}
-                </span>
-              </label>
+                <div className="mt-2 grid gap-3 md:grid-cols-3">
+                  {availableBundles.map((bundle) => {
+                    const active = bundle.id === selectedModelBundle
+                    return (
+                      <button
+                        key={bundle.id}
+                        type="button"
+                        onClick={() => setSelectedModelBundle(bundle.id)}
+                        className={`rounded-xl border p-3 text-left transition ${
+                          active
+                            ? 'border-[var(--glass-tone-info-fg)] bg-[var(--glass-tone-info-bg)]/15'
+                            : 'border-[var(--glass-stroke-base)] bg-[var(--glass-bg-surface)] hover:border-[var(--glass-stroke-strong)]'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm font-semibold text-[var(--glass-text-primary)]">{bundle.displayName}</span>
+                          <AppIcon name={active ? 'check' : 'cpu'} className="h-4 w-4 text-[var(--glass-text-tertiary)]" />
+                        </div>
+                        <p className="mt-1 text-xs text-[var(--glass-text-secondary)]">{bundle.tagline}</p>
+                        <div className="mt-3 flex flex-wrap gap-1.5">
+                          {bundle.featureTags.map((tag) => (
+                            <span key={tag} className="rounded-full bg-[var(--glass-tone-info-bg)] px-2 py-1 text-[10px] text-[var(--glass-tone-info-fg)]">
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+                {selectedBundle && (
+                  <p className="mt-2 text-[11px] text-[var(--glass-text-tertiary)]">{selectedBundle.description}</p>
+                )}
+              </div>
               <div className="rounded-xl border border-[var(--glass-stroke-subtle)] bg-[var(--glass-bg-surface)] px-3 py-2 text-xs leading-relaxed text-[var(--glass-text-secondary)]">
                 {imageReady ? t('readyToStart') : t('imageRequiredInline')}
               </div>
@@ -634,7 +647,7 @@ export function AutoDLTab() {
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-sm font-semibold text-[var(--glass-text-primary)]">
-                            {session.modelBundle || t('modelBundleDefault')}
+                            {getBundleName(session.modelBundle)}
                           </span>
                           <span className={`glass-chip text-[10px] ${getSessionStatusClass(session.status)}`}>
                             {t(`sessionStatus.${session.status}`)}

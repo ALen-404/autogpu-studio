@@ -5,6 +5,7 @@ import {
   AUTODL_CONNECTION_MODES,
   getAutoDLDefaultImageUuid,
   getAutoDLDefaultProfileId,
+  getAutoDLModelBundles,
   getAutoDLOfficialUrl,
   getAutoDLProfiles,
 } from '@/lib/autodl'
@@ -22,6 +23,7 @@ export const GET = apiHandler(async () => {
       profiles.map((profile) => [profile.id, !!getAutoDLDefaultImageUuid(profile.id)]),
     ),
     connectionModes: AUTODL_CONNECTION_MODES,
+    modelBundles: getAutoDLModelBundles(),
     profiles,
   })
 })

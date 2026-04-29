@@ -8,6 +8,7 @@ import {
   createAutoDLInstance,
   decryptAutoDLToken,
   getAutoDLDefaultImageUuid,
+  getAutoDLModelBundle,
   getAutoDLPublicServerUrl,
   isAutoDLPublicServerUrlReachableFromInstance,
   isAutoDLProfileId,
@@ -42,10 +43,14 @@ function readCreateBody(body: unknown) {
   if (!isAutoDLProfileId(profileId)) {
     throw new ApiError('INVALID_PARAMS', { message: 'AutoDL GPU 档位无效' })
   }
+  const requestedBundle = getAutoDLModelBundle(readTrimmedString(raw.modelBundle))
+  const modelBundle = requestedBundle.supportedProfileIds.includes(profileId)
+    ? requestedBundle.id
+    : getAutoDLModelBundle('balanced').id
   return {
     profileId,
     imageUuid: readTrimmedString(raw.imageUuid),
-    modelBundle: readTrimmedString(raw.modelBundle) || 'default',
+    modelBundle,
     instanceName: readTrimmedString(raw.instanceName) || `AutoGPU Studio ${profileId}`,
   }
 }

@@ -46,6 +46,7 @@ export const POST = apiHandler(async (
       id: true,
       instanceUuid: true,
       profileId: true,
+      modelBundle: true,
       workerSharedSecretCiphertext: true,
       connection: {
         select: {
@@ -95,6 +96,7 @@ export const POST = apiHandler(async (
       userId,
       sessionId: session.id,
       profileId: session.profileId === 'pro6000-p' ? 'pro6000-p' : '5090-p',
+      modelBundle: session.modelBundle,
       workerBaseUrl,
       workerSharedSecretCiphertext: session.workerSharedSecretCiphertext,
     }).catch(() => null)

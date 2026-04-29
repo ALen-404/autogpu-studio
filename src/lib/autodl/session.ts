@@ -213,14 +213,24 @@ MODEL_CATALOG = {
     "flux2-klein-4b": {"id": "flux2-klein-4b", "name": "FLUX.2 klein 4B", "type": "image"},
     "qwen-image-edit": {"id": "qwen-image-edit", "name": "Qwen-Image / Qwen-Image-Edit", "type": "image"},
     "sdxl-sd35-medium": {"id": "sdxl-sd35-medium", "name": "SDXL / SD 3.5 Medium", "type": "image"},
+    "qwen3-8b-instruct": {"id": "qwen3-8b-instruct", "name": "Qwen3 8B Instruct", "type": "llm"},
+    "qwen3-32b-instruct": {"id": "qwen3-32b-instruct", "name": "Qwen3 32B Instruct", "type": "llm"},
     "cosyvoice3-0.5b": {"id": "cosyvoice3-0.5b", "name": "CosyVoice 3 0.5B", "type": "audio"},
     "f5-tts-v1": {"id": "f5-tts-v1", "name": "F5-TTS v1", "type": "audio"},
     "indextts2": {"id": "indextts2", "name": "IndexTTS2", "type": "audio"},
     "fish-speech": {"id": "fish-speech", "name": "Fish-Speech", "type": "audio"},
 }
 
+MODEL_BUNDLES = {
+    "starter": ["ltx-video-2b-distilled", "sdxl-sd35-medium", "qwen3-8b-instruct", "cosyvoice3-0.5b"],
+    "balanced": ["wan2.2-ti2v-5b", "flux2-klein-4b", "qwen3-8b-instruct", "f5-tts-v1"],
+    "advanced": ["wan2.2-i2v-a14b", "ltx-video-13b-fp8", "qwen-image-edit", "qwen3-32b-instruct", "indextts2", "fish-speech"],
+}
+
 def selected_models():
     bundle = os.environ.get("AUTOGPU_MODEL_BUNDLE", "default").strip()
+    if bundle in MODEL_BUNDLES:
+        return [MODEL_CATALOG[model_id] for model_id in MODEL_BUNDLES[bundle] if model_id in MODEL_CATALOG]
     if bundle and bundle != "default" and bundle in MODEL_CATALOG:
         return [MODEL_CATALOG[bundle]]
     return list(MODEL_CATALOG.values())
@@ -237,6 +247,7 @@ SUPPORTED_BACKEND_ENV_HINTS = (
     "AUTOGPU_IMAGE_API_URL",
     "AUTOGPU_VIDEO_API_URL",
     "AUTOGPU_TTS_API_URL",
+    "AUTOGPU_LLM_API_URL",
 )
 
 class BackendMissing(Exception):
@@ -260,6 +271,7 @@ def backend_script(kind):
         "IMAGE": "image_generate.py",
         "VIDEO": "video_generate.py",
         "TTS": "tts_generate.py",
+        "LLM": "llm_generate.py",
     }
     return os.path.join(script_dir, names[kind])
 
@@ -520,6 +532,28 @@ def call_direct_backend(kind, payload):
     stdout = completed.stdout.strip()
     return json.loads(stdout) if stdout else {}
 
+def call_llm_backend(payload):
+    result = call_direct_backend("LLM", payload)
+    if isinstance(result, dict) and isinstance(result.get("choices"), list):
+        return result
+    text = first_value(result, ("text", "content", "output", "answer", "response", "message"))
+    if not text and isinstance(result, str):
+        text = result
+    if not text:
+        raise RuntimeError("文字后端没有返回文本")
+    model = str(payload.get("model", "") or os.environ.get("AUTOGPU_MODEL_BUNDLE", "autogpu-llm")).strip()
+    return {
+        "id": "chatcmpl-" + str(uuid.uuid4()),
+        "object": "chat.completion",
+        "created": int(time.time()),
+        "model": model,
+        "choices": [{
+            "index": 0,
+            "message": {"role": "assistant", "content": text},
+            "finish_reason": "stop",
+        }],
+    }
+
 def first_value(payload, keys):
     if isinstance(payload, dict):
         for key in keys:
@@ -731,6 +765,7 @@ class WorkerHandler(BaseHTTPRequestHandler):
                 "backends": {
                     "image": backend_presence("IMAGE"),
                     "video": backend_presence("VIDEO"),
+                    "llm": backend_presence("LLM"),
                     "tts": backend_presence("TTS"),
                 },
             })
@@ -763,6 +798,14 @@ class WorkerHandler(BaseHTTPRequestHandler):
             return
         if path == "/v1/audio/speech":
             self._handle_tts()
+            return
+        if path in ("/v1/chat/completions", "/v1/completions"):
+            try:
+                self._json(200, call_llm_backend(read_json_body(self)))
+            except BackendMissing as error:
+                self._backend_missing(error.kind)
+            except Exception as error:
+                self._backend_error(error)
             return
         self._json(404, {"ok": False, "error": "not_found"})
 

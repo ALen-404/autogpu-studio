@@ -1,9 +1,15 @@
 import { prisma } from '@/lib/prisma'
 import { composeModelKey } from '@/lib/model-config-contract'
+import type { UnifiedModelType } from '@/lib/model-config-contract'
 import type { OpenAICompatMediaTemplate } from '@/lib/openai-compat-media-template'
-import { getLocalModelCatalog, isAutoDLProfileId, type AutoDLProfileId, type LocalModelCatalogItem } from './catalog'
+import {
+  getLocalModelCatalogForBundle,
+  isAutoDLProfileId,
+  type AutoDLProfileId,
+  type LocalModelCatalogItem,
+} from './catalog'
 
-type AutoDLWorkerModelType = 'image' | 'video' | 'audio'
+type AutoDLWorkerModelType = UnifiedModelType
 
 interface StoredProvider {
   id: string
@@ -36,6 +42,7 @@ export interface BuildAutoDLWorkerProviderConfigParams {
   profileId: AutoDLProfileId
   workerBaseUrl: string
   workerSharedSecretCiphertext: string
+  modelBundle?: string | null
 }
 
 export interface UpsertAutoDLWorkerProviderParams extends BuildAutoDLWorkerProviderConfigParams {
@@ -53,7 +60,9 @@ function parseArray<T>(rawValue: string | null | undefined): T[] {
 }
 
 function toWorkerModelType(model: LocalModelCatalogItem): AutoDLWorkerModelType {
-  return model.modality === 'tts' ? 'audio' : model.modality
+  if (model.modality === 'tts') return 'audio'
+  if (model.modality === 'llm') return 'llm'
+  return model.modality
 }
 
 function normalizeWorkerBaseUrl(value: string): string {
@@ -153,7 +162,7 @@ export function buildAutoDLWorkerProviderConfig(
   if (!params.workerSharedSecretCiphertext.trim()) throw new Error('AUTODL_WORKER_SECRET_REQUIRED')
 
   const providerId = `openai-compatible:${params.sessionId}`
-  const models = getLocalModelCatalog(params.profileId).map((model) => ({
+  const models = getLocalModelCatalogForBundle(params.profileId, params.modelBundle).map((model) => ({
     modelId: model.id,
     modelKey: composeModelKey(providerId, model.id),
     name: `AutoDL ${model.name}`,
@@ -191,6 +200,7 @@ export async function upsertAutoDLWorkerProvider(
       editModel: true,
       videoModel: true,
       audioModel: true,
+      analysisModel: true,
     },
   })
 
@@ -204,7 +214,9 @@ export async function upsertAutoDLWorkerProvider(
   const firstImageModel = config.models.find((model) => model.type === 'image')?.modelKey
   const firstVideoModel = config.models.find((model) => model.type === 'video')?.modelKey
   const firstAudioModel = config.models.find((model) => model.type === 'audio')?.modelKey
+  const firstLlmModel = config.models.find((model) => model.type === 'llm')?.modelKey
   const defaults = {
+    ...(!pref?.analysisModel && firstLlmModel ? { analysisModel: firstLlmModel } : {}),
     ...(!pref?.characterModel && firstImageModel ? { characterModel: firstImageModel } : {}),
     ...(!pref?.locationModel && firstImageModel ? { locationModel: firstImageModel } : {}),
     ...(!pref?.storyboardModel && firstImageModel ? { storyboardModel: firstImageModel } : {}),
@@ -219,6 +231,7 @@ export async function upsertAutoDLWorkerProvider(
       userId: params.userId,
       customProviders: JSON.stringify(providers),
       customModels: JSON.stringify(models),
+      ...(firstLlmModel ? { analysisModel: firstLlmModel } : {}),
       ...(firstImageModel ? {
         characterModel: firstImageModel,
         locationModel: firstImageModel,

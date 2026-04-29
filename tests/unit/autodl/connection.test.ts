@@ -252,6 +252,7 @@ describe('AutoDL 连接配置', () => {
     expect(script).toContain('export AUTOGPU_WORKER_PORT="$PORT"')
     expect(script).toContain('/health')
     expect(script).toContain('/v1/models')
+    expect(script).toContain('/v1/chat/completions')
     expect(script).toContain('/v1/audio/speech')
   })
 
@@ -268,8 +269,9 @@ describe('AutoDL 连接配置', () => {
       baseUrl: 'http://worker.autodl.com:8443/v1',
       gatewayRoute: 'openai-compat',
     })
-    expect(config.models.some((model) => model.type === 'video' && model.modelId.includes('ltx-video'))).toBe(true)
+    expect(config.models.some((model) => model.type === 'video')).toBe(true)
     expect(config.models.some((model) => model.type === 'image')).toBe(true)
+    expect(config.models.some((model) => model.type === 'llm')).toBe(true)
     expect(config.models.some((model) => model.type === 'audio')).toBe(true)
   })
 
@@ -321,9 +323,11 @@ describe('AutoDL 连接配置', () => {
 
     expect(script).toContain('AUTOGPU_IMAGE_API_URL')
     expect(script).toContain('AUTOGPU_VIDEO_API_URL')
+    expect(script).toContain('AUTOGPU_LLM_API_URL')
     expect(script).toContain('AUTOGPU_TTS_API_URL')
     expect(script).toContain('/v1/autogpu/images')
     expect(script).toContain('/v1/autogpu/videos')
+    expect(script).toContain('/v1/chat/completions')
     expect(script).toContain('call_direct_backend')
   })
 

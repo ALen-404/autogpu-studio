@@ -73,6 +73,7 @@ describe('api contract - infra routes (behavior)', () => {
   it('infra route group exists', () => {
     expect(routes.map((entry) => entry.routeFile)).toEqual(expect.arrayContaining([
       'src/app/api/admin/download-logs/route.ts',
+      'src/app/api/autodl/balance/route.ts',
       'src/app/api/autodl/profiles/route.ts',
       'src/app/api/cos/image/route.ts',
       'src/app/api/files/[...path]/route.ts',
@@ -95,6 +96,12 @@ describe('api contract - infra routes (behavior)', () => {
       success: boolean
       officialUrl: string
       connectionModes: Array<{ id: string }>
+      modelBundles: Array<{
+        id: string
+        displayName: string
+        modelIds: string[]
+        featureTags: string[]
+      }>
       profiles: Array<{
         id: string
         displayName: string
@@ -113,6 +120,14 @@ describe('api contract - infra routes (behavior)', () => {
     expect(json.profiles.every((profile) => profile.resaleAllowed === false)).toBe(true)
     expect(json.profiles.every((profile) => profile.billingMode === 'user_owned_autodl_account')).toBe(true)
     expect(json.profiles.every((profile) => profile.priceMarkupPercent === 0)).toBe(true)
+    expect(json.modelBundles.map((bundle) => bundle.displayName)).toEqual(['低级', '中级', '高级'])
+    expect(json.modelBundles.every((bundle) => bundle.modelIds.length >= 4)).toBe(true)
+    expect(json.modelBundles.flatMap((bundle) => bundle.featureTags)).toEqual(expect.arrayContaining([
+      '轻量视频',
+      '高清生图',
+      '文字分析',
+      '高级 TTS',
+    ]))
   })
 
   it('GET /api/local-models filters local model catalog by AutoDL profile', async () => {
@@ -138,6 +153,7 @@ describe('api contract - infra routes (behavior)', () => {
     expect(json.models.some((model) => model.id === 'wan2.2-i2v-a14b')).toBe(false)
     expect(json.models.some((model) => model.modality === 'video')).toBe(true)
     expect(json.models.some((model) => model.modality === 'image')).toBe(true)
+    expect(json.models.some((model) => model.modality === 'llm')).toBe(true)
     expect(json.models.some((model) => model.modality === 'tts')).toBe(true)
   })
 

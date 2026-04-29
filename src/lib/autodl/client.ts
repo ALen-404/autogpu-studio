@@ -67,6 +67,13 @@ export interface AutoDLProbeResult {
   instanceCount?: number
 }
 
+export interface AutoDLWalletBalance {
+  rawBalance: number | null
+  balanceCny: number | null
+  displayBalance: string
+  requestId?: string
+}
+
 export interface ProbeAutoDLTokenParams {
   token: string
   fetcher?: typeof fetch
@@ -104,6 +111,22 @@ function readNonEmptyString(value: unknown, code: string): string {
   const normalized = typeof value === 'string' ? value.trim() : ''
   if (!normalized) throw new Error(code)
   return normalized
+}
+
+function readBalanceNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value.trim())
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const raw = value as Record<string, unknown>
+    for (const key of ['balance', 'wallet_balance', 'walletBalance', 'amount', 'money']) {
+      const parsed = readBalanceNumber(raw[key])
+      if (parsed !== null) return parsed
+    }
+  }
+  return null
 }
 
 async function requestAutoDL<T>(params: {
@@ -207,6 +230,24 @@ export async function probeAutoDLToken(params: ProbeAutoDLTokenParams): Promise<
       code: 'AUTODL_NETWORK_ERROR',
       message: error instanceof Error ? error.message : 'AutoDL 网络请求失败',
     }
+  }
+}
+
+export async function getAutoDLWalletBalance(params: ProbeAutoDLTokenParams): Promise<AutoDLWalletBalance> {
+  const payload = await requestAutoDL<unknown>({
+    token: params.token,
+    path: '/api/v1/dev/wallet/balance',
+    fetcher: params.fetcher,
+    baseUrl: params.baseUrl,
+    body: {},
+  })
+  const rawBalance = readBalanceNumber(payload.data)
+  const balanceCny = rawBalance === null ? null : rawBalance / 1000
+  return {
+    rawBalance,
+    balanceCny,
+    displayBalance: balanceCny === null ? '未知' : `¥${balanceCny.toFixed(2)}`,
+    requestId: payload.request_id,
   }
 }
 
