@@ -2,12 +2,15 @@ import crypto from 'crypto'
 import { decryptApiKey, encryptApiKey } from '@/lib/crypto-utils'
 import { isAutoDLProfileId, type AutoDLProfileId } from './catalog'
 import { buildAutoDLWorkerStartCommand, type AutoDLPreferredPort } from './connection'
+import type { AutoDLListedInstance } from './client'
 
 export type AutoDLSessionStatus = 'created' | 'booting' | 'running' | 'worker_ready' | 'stopped' | 'released' | 'failed'
+export type AutoDLSessionSource = 'platform' | 'autodl'
 
 export interface AutoDLSessionView {
   id: string
   instanceUuid: string | null
+  displayName: string | null
   profileId: AutoDLProfileId
   imageUuid: string | null
   modelBundle: string | null
@@ -15,6 +18,8 @@ export interface AutoDLSessionView {
   autodlStatus: string | null
   workerBaseUrl: string | null
   paygPrice: number | null
+  source: AutoDLSessionSource
+  managedByPlatform: boolean
   createdAt: string
   updatedAt: string
   startedAt: string | null
@@ -31,6 +36,7 @@ interface AutoDLSessionRow {
   autodlStatus?: string | null
   workerBaseUrl?: string | null
   paygPrice?: number | null
+  workerSharedSecretCiphertext?: string | null
   createdAt: Date | string
   updatedAt: Date | string
   startedAt?: Date | string | null
@@ -65,10 +71,36 @@ function normalizeSessionStatus(value: string): AutoDLSessionStatus {
   return 'created'
 }
 
-export function buildAutoDLSessionView(row: AutoDLSessionRow): AutoDLSessionView {
+function normalizeExternalSessionStatus(value: string | null | undefined): AutoDLSessionStatus {
+  const status = (value || '').trim().toLowerCase()
+  if (!status) return 'created'
+  if (status.includes('fail') || status.includes('error')) return 'failed'
+  if (status.includes('release') || status.includes('delete') || status.includes('destroy')) return 'released'
+  if (status.includes('stop') || status.includes('shutdown') || status.includes('poweroff')) return 'stopped'
+  if (status.includes('running')) return 'running'
+  if (status.includes('boot') || status.includes('start') || status.includes('create')) return 'booting'
+  return 'created'
+}
+
+export function inferAutoDLModelBundleFromName(value: string | null | undefined): string | null {
+  const name = (value || '').trim().toLowerCase()
+  if (!name) return null
+  if (name.includes('低级') || name.includes('starter') || name.includes('low')) return 'starter'
+  if (name.includes('高级') || name.includes('advanced') || name.includes('high')) return 'advanced'
+  if (name.includes('中级') || name.includes('balanced') || name.includes('medium')) return 'balanced'
+  return null
+}
+
+export function buildAutoDLSessionView(row: AutoDLSessionRow, options: {
+  displayName?: string | null
+  source?: AutoDLSessionSource
+  managedByPlatform?: boolean
+} = {}): AutoDLSessionView {
+  const source = options.source || 'platform'
   return {
     id: row.id,
     instanceUuid: row.instanceUuid || null,
+    displayName: options.displayName || null,
     profileId: isAutoDLProfileId(row.profileId) ? row.profileId : '5090-p',
     imageUuid: row.imageUuid || null,
     modelBundle: row.modelBundle || null,
@@ -76,10 +108,34 @@ export function buildAutoDLSessionView(row: AutoDLSessionRow): AutoDLSessionView
     autodlStatus: row.autodlStatus || null,
     workerBaseUrl: row.workerBaseUrl || null,
     paygPrice: row.paygPrice ?? null,
+    source,
+    managedByPlatform: options.managedByPlatform ?? (source === 'platform'),
     createdAt: toIsoString(row.createdAt) || new Date(0).toISOString(),
     updatedAt: toIsoString(row.updatedAt) || new Date(0).toISOString(),
     startedAt: toIsoString(row.startedAt),
     releasedAt: toIsoString(row.releasedAt),
+  }
+}
+
+export function buildAutoDLExternalSessionView(instance: AutoDLListedInstance): AutoDLSessionView {
+  const now = new Date().toISOString()
+  return {
+    id: `autodl:${instance.instanceUuid}`,
+    instanceUuid: instance.instanceUuid,
+    displayName: instance.displayName,
+    profileId: instance.profileId || '5090-p',
+    imageUuid: null,
+    modelBundle: inferAutoDLModelBundleFromName(instance.displayName),
+    status: normalizeExternalSessionStatus(instance.status),
+    autodlStatus: instance.status,
+    workerBaseUrl: null,
+    paygPrice: null,
+    source: 'autodl',
+    managedByPlatform: false,
+    createdAt: instance.createdAt || instance.startedAt || now,
+    updatedAt: instance.statusAt || instance.startedAt || instance.createdAt || now,
+    startedAt: instance.startedAt,
+    releasedAt: null,
   }
 }
 

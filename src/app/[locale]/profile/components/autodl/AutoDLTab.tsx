@@ -81,6 +81,7 @@ interface AutoDLProbePayload {
 interface AutoDLSession {
   id: string
   instanceUuid: string | null
+  displayName: string | null
   profileId: AutoDLProfileId
   imageUuid: string | null
   modelBundle: string | null
@@ -88,6 +89,8 @@ interface AutoDLSession {
   autodlStatus: string | null
   workerBaseUrl: string | null
   paygPrice: number | null
+  source: 'platform' | 'autodl'
+  managedByPlatform: boolean
   createdAt: string
   updatedAt: string
   startedAt: string | null
@@ -96,6 +99,8 @@ interface AutoDLSession {
 
 interface AutoDLSessionsPayload {
   success: boolean
+  accountInstanceCount?: number
+  untrackedInstanceCount?: number
   sessions: AutoDLSession[]
 }
 
@@ -128,6 +133,8 @@ export function AutoDLTab() {
   const [defaultImageReadyByProfile, setDefaultImageReadyByProfile] = useState<Partial<Record<AutoDLProfileId, boolean>>>({})
   const [preferredPort, setPreferredPort] = useState<AutoDLPreferredPort>(6006)
   const [selectedModelBundle, setSelectedModelBundle] = useState<AutoDLModelBundleId>(DEFAULT_MODEL_BUNDLE)
+  const [accountInstanceCount, setAccountInstanceCount] = useState(0)
+  const [untrackedInstanceCount, setUntrackedInstanceCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [connectionBusy, setConnectionBusy] = useState<'save' | 'test' | 'delete' | null>(null)
   const [balanceBusy, setBalanceBusy] = useState(false)
@@ -149,6 +156,15 @@ export function AutoDLTab() {
       setBalanceBusy(false)
     }
   }, [t])
+
+  const refreshSessions = useCallback(async () => {
+    const response = await apiFetch('/api/autodl/sessions')
+    const payload = await response.json() as AutoDLSessionsPayload
+    if (!response.ok || !payload.success) throw new Error('sessions')
+    setSessions(Array.isArray(payload.sessions) ? payload.sessions : [])
+    setAccountInstanceCount(payload.accountInstanceCount || 0)
+    setUntrackedInstanceCount(payload.untrackedInstanceCount || 0)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -176,6 +192,8 @@ export function AutoDLTab() {
         setSelectedProfileId(connectionPayload.connection?.defaultProfileId || payload.defaultProfileId || '5090-p')
         setPreferredPort(connectionPayload.connection?.preferredPort || 6006)
         setSessions(Array.isArray(sessionsPayload.sessions) ? sessionsPayload.sessions : [])
+        setAccountInstanceCount(sessionsPayload.accountInstanceCount || 0)
+        setUntrackedInstanceCount(sessionsPayload.untrackedInstanceCount || 0)
         if (connectionPayload.connection?.configured) void refreshBalance()
       } catch {
         if (!cancelled) setError(t('loadFailed'))
@@ -214,7 +232,10 @@ export function AutoDLTab() {
   function upsertSession(nextSession: AutoDLSession | null | undefined) {
     if (!nextSession) return
     setSessions((current) => {
-      const existingIndex = current.findIndex((item) => item.id === nextSession.id)
+      const existingIndex = current.findIndex((item) => (
+        item.id === nextSession.id
+        || (!!item.instanceUuid && !!nextSession.instanceUuid && item.instanceUuid === nextSession.instanceUuid)
+      ))
       if (existingIndex === -1) return [nextSession, ...current]
       const next = [...current]
       next[existingIndex] = nextSession
@@ -292,6 +313,7 @@ export function AutoDLTab() {
         : ''
       setConnectionMessage(`${payload.probe?.message || t('testSuccess')}${countText ? ` · ${countText}` : ''}`)
       void refreshBalance()
+      void refreshSessions().catch(() => undefined)
     } catch (err) {
       setError(err instanceof Error && err.message ? err.message : t('testFailed'))
     } finally {
@@ -352,8 +374,35 @@ export function AutoDLTab() {
       if (!response.ok || !payload.success) throw new Error(payload.message || t('startFailed'))
       upsertSession(payload.session)
       setSessionMessage(t('startSuccess'))
+      void refreshSessions().catch(() => undefined)
     } catch (err) {
       setError(err instanceof Error && err.message ? err.message : t('startFailed'))
+    } finally {
+      setSessionBusy(null)
+    }
+  }
+
+  async function handleImportSession(session: AutoDLSession) {
+    if (!session.instanceUuid) return
+
+    setSessionBusy(`${session.id}:import`)
+    setSessionMessage(null)
+    setError(null)
+    try {
+      const response = await apiFetch('/api/autodl/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          importInstanceUuid: session.instanceUuid,
+        }),
+      })
+      const payload = await response.json() as AutoDLSessionPayload
+      if (!response.ok || !payload.success) throw new Error(payload.message || t('importFailed'))
+      upsertSession(payload.session)
+      setUntrackedInstanceCount((count) => Math.max(0, count - 1))
+      setSessionMessage(t('importSuccess'))
+    } catch (err) {
+      setError(err instanceof Error && err.message ? err.message : t('importFailed'))
     } finally {
       setSessionBusy(null)
     }
@@ -639,55 +688,86 @@ export function AutoDLTab() {
             </div>
 
             <div className="mt-3 space-y-2">
+              {accountInstanceCount > 0 && (
+                <div className="rounded-xl border border-[var(--glass-stroke-subtle)] bg-[var(--glass-bg-surface)] px-3 py-2 text-xs text-[var(--glass-text-secondary)]">
+                  {untrackedInstanceCount > 0
+                    ? t('accountInstancesDetected', { count: accountInstanceCount, untracked: untrackedInstanceCount })
+                    : t('accountInstancesSynced', { count: accountInstanceCount })}
+                </div>
+              )}
               {sessions.map((session) => {
-                const canOperate = session.status !== 'released'
+                const externalOnly = session.source === 'autodl'
+                const canOperate = session.status !== 'released' && !externalOnly
                 return (
                   <div key={session.id} className="rounded-xl border border-[var(--glass-stroke-subtle)] bg-[var(--glass-bg-surface)] p-3">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <span className="text-sm font-semibold text-[var(--glass-text-primary)]">
-                            {getBundleName(session.modelBundle)}
+                            {session.displayName || getBundleName(session.modelBundle)}
                           </span>
                           <span className={`glass-chip text-[10px] ${getSessionStatusClass(session.status)}`}>
                             {t(`sessionStatus.${session.status}`)}
                           </span>
+                          {externalOnly ? (
+                            <span className="glass-chip glass-chip-warning text-[10px]">{t('sessionExternal')}</span>
+                          ) : !session.managedByPlatform ? (
+                            <span className="glass-chip glass-chip-warning text-[10px]">{t('sessionUnmanaged')}</span>
+                          ) : null}
                         </div>
                         <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-[var(--glass-text-tertiary)]">
                           <span>{session.profileId}</span>
                           <span>{t('paygPrice', { price: formatPaygPrice(session.paygPrice) })}</span>
                           {session.autodlStatus ? <span>AutoDL {session.autodlStatus}</span> : null}
+                          {session.instanceUuid ? <span>{session.instanceUuid}</span> : null}
                         </div>
+                        {!session.managedByPlatform && (
+                          <p className="mt-2 text-[11px] text-[var(--glass-text-tertiary)]">{t('unmanagedHint')}</p>
+                        )}
                       </div>
 
                       <div className="flex shrink-0 flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => handleSessionAction(session.id, 'sync')}
-                          disabled={sessionBusy !== null || !canOperate}
-                          className="glass-btn-base glass-btn-secondary flex items-center gap-2 px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          <AppIcon name={sessionBusy === `${session.id}:sync` ? 'loader' : 'refresh'} className={`h-3.5 w-3.5 ${sessionBusy === `${session.id}:sync` ? 'animate-spin' : ''}`} />
-                          {t('syncSession')}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleSessionAction(session.id, 'power-off')}
-                          disabled={sessionBusy !== null || !canOperate || session.status === 'stopped'}
-                          className="glass-btn-base glass-btn-secondary flex items-center gap-2 px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          <AppIcon name={sessionBusy === `${session.id}:power-off` ? 'loader' : 'pause'} className={`h-3.5 w-3.5 ${sessionBusy === `${session.id}:power-off` ? 'animate-spin' : ''}`} />
-                          {t('powerOffSession')}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleSessionAction(session.id, 'release')}
-                          disabled={sessionBusy !== null || !canOperate}
-                          className="glass-btn-base glass-btn-secondary flex items-center gap-2 px-3 py-2 text-xs text-red-500 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          <AppIcon name={sessionBusy === `${session.id}:release` ? 'loader' : 'trash'} className={`h-3.5 w-3.5 ${sessionBusy === `${session.id}:release` ? 'animate-spin' : ''}`} />
-                          {t('releaseSession')}
-                        </button>
+                        {externalOnly ? (
+                          <button
+                            type="button"
+                            onClick={() => void handleImportSession(session)}
+                            disabled={sessionBusy !== null}
+                            className="glass-btn-base glass-btn-primary flex items-center gap-2 px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <AppIcon name={sessionBusy === `${session.id}:import` ? 'loader' : 'link'} className={`h-3.5 w-3.5 ${sessionBusy === `${session.id}:import` ? 'animate-spin' : ''}`} />
+                            {sessionBusy === `${session.id}:import` ? t('importing') : t('importSession')}
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleSessionAction(session.id, 'sync')}
+                              disabled={sessionBusy !== null || !canOperate}
+                              className="glass-btn-base glass-btn-secondary flex items-center gap-2 px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              <AppIcon name={sessionBusy === `${session.id}:sync` ? 'loader' : 'refresh'} className={`h-3.5 w-3.5 ${sessionBusy === `${session.id}:sync` ? 'animate-spin' : ''}`} />
+                              {t('syncSession')}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSessionAction(session.id, 'power-off')}
+                              disabled={sessionBusy !== null || !canOperate || session.status === 'stopped'}
+                              className="glass-btn-base glass-btn-secondary flex items-center gap-2 px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              <AppIcon name={sessionBusy === `${session.id}:power-off` ? 'loader' : 'pause'} className={`h-3.5 w-3.5 ${sessionBusy === `${session.id}:power-off` ? 'animate-spin' : ''}`} />
+                              {t('powerOffSession')}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleSessionAction(session.id, 'release')}
+                              disabled={sessionBusy !== null || !canOperate}
+                              className="glass-btn-base glass-btn-secondary flex items-center gap-2 px-3 py-2 text-xs text-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              <AppIcon name={sessionBusy === `${session.id}:release` ? 'loader' : 'trash'} className={`h-3.5 w-3.5 ${sessionBusy === `${session.id}:release` ? 'animate-spin' : ''}`} />
+                              {t('releaseSession')}
+                            </button>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>

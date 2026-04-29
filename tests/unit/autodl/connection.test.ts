@@ -12,6 +12,7 @@ import {
   getAutoDLInstanceSnapshot,
   getAutoDLInstanceStatus,
   getAutoDLWalletBalance,
+  listAutoDLInstances,
   powerOffAutoDLInstance,
   probeAutoDLToken,
   releaseAutoDLInstance,
@@ -78,6 +79,53 @@ describe('AutoDL 连接配置', () => {
           'Content-Type': 'application/json',
         }),
         body: JSON.stringify({ page_index: 1, page_size: 1 }),
+      }),
+    )
+  })
+
+  it('读取 AutoDL 账号已有实例并保留可展示字段', async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({
+      code: 'Success',
+      data: {
+        result_total: 1,
+        list: [
+          {
+            uuid: 'pro-77742ca0bda5',
+            name: 'AutoGPU 中级',
+            gpu_spec_uuid: 'pro6000-p',
+            status: 'running',
+            created_at: '2026-04-29T11:43:03+08:00',
+            started_at: { Time: '2026-04-29T11:43:11+08:00', Valid: true },
+            status_at: '2026-04-29T11:43:11+08:00',
+          },
+        ],
+      },
+      msg: '',
+      request_id: 'req_list',
+    }), { status: 200 }))
+
+    const result = await listAutoDLInstances({
+      token: 'autodl-token-123456',
+      fetcher,
+      pageSize: 20,
+    })
+
+    expect(result.total).toBe(1)
+    expect(result.instances).toEqual([
+      expect.objectContaining({
+        instanceUuid: 'pro-77742ca0bda5',
+        displayName: 'AutoGPU 中级',
+        profileId: 'pro6000-p',
+        status: 'running',
+        createdAt: '2026-04-29T11:43:03+08:00',
+        startedAt: '2026-04-29T11:43:11+08:00',
+      }),
+    ])
+    expect(fetcher).toHaveBeenCalledWith(
+      'https://api.autodl.com/api/v1/dev/instance/pro/list',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ page_index: 1, page_size: 20 }),
       }),
     )
   })

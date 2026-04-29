@@ -51,6 +51,26 @@ interface AutoDLInstanceListData {
   list?: unknown[]
 }
 
+export interface AutoDLListedInstance {
+  instanceUuid: string
+  displayName: string | null
+  profileId: AutoDLProfileId | null
+  status: string | null
+  subStatus: string | null
+  createdAt: string | null
+  startedAt: string | null
+  statusAt: string | null
+  regionName: string | null
+  chargeType: string | null
+  gpuAmount: number | null
+}
+
+export interface AutoDLInstanceListResult {
+  total: number
+  instances: AutoDLListedInstance[]
+  requestId?: string
+}
+
 export interface AutoDLCreateInstanceParams {
   token: string
   profileId: AutoDLProfileId
@@ -115,6 +135,11 @@ export interface ProbeAutoDLTokenParams {
   baseUrl?: string
 }
 
+export interface ListAutoDLInstancesParams extends ProbeAutoDLTokenParams {
+  pageIndex?: number
+  pageSize?: number
+}
+
 function getAutoDLApiBaseUrl(rawBaseUrl?: string): string {
   const configured = rawBaseUrl || process.env.AUTODL_API_BASE_URL || AUTODL_API_BASE_URL_FALLBACK
   try {
@@ -162,6 +187,63 @@ function readBalanceNumber(value: unknown): number | null {
     }
   }
   return null
+}
+
+function readStringField(raw: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = raw[key]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  return null
+}
+
+function readNumberField(raw: Record<string, unknown>, keys: string[]): number | null {
+  for (const key of keys) {
+    const value = raw[key]
+    if (typeof value === 'number' && Number.isFinite(value)) return value
+    if (typeof value === 'string' && value.trim()) {
+      const parsed = Number(value.trim())
+      if (Number.isFinite(parsed)) return parsed
+    }
+  }
+  return null
+}
+
+function readAutoDLTime(value: unknown): string | null {
+  if (typeof value === 'string' && value.trim()) return value.trim()
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const raw = value as Record<string, unknown>
+  if (raw.Valid === false) return null
+  return typeof raw.Time === 'string' && raw.Time.trim() ? raw.Time.trim() : null
+}
+
+function readTimeField(raw: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = readAutoDLTime(raw[key])
+    if (value) return value
+  }
+  return null
+}
+
+function normalizeAutoDLListedInstance(value: unknown): AutoDLListedInstance | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const raw = value as Record<string, unknown>
+  const instanceUuid = readStringField(raw, ['uuid', 'instance_uuid', 'instanceUuid'])
+  if (!instanceUuid) return null
+  const profileId = readStringField(raw, ['gpu_spec_uuid', 'gpuSpecUuid', 'gpu_spec'])
+  return {
+    instanceUuid,
+    displayName: readStringField(raw, ['name', 'instance_name', 'instanceName', 'machine_alias']),
+    profileId: profileId && isAutoDLProfileId(profileId) ? profileId : null,
+    status: readStringField(raw, ['status']),
+    subStatus: readStringField(raw, ['sub_status', 'subStatus']),
+    createdAt: readTimeField(raw, ['created_at', 'createdAt']),
+    startedAt: readTimeField(raw, ['started_at', 'startedAt']),
+    statusAt: readTimeField(raw, ['status_at', 'statusAt']),
+    regionName: readStringField(raw, ['region_name', 'regionName']),
+    chargeType: readStringField(raw, ['charge_type', 'chargeType']),
+    gpuAmount: readNumberField(raw, ['req_gpu_amount', 'gpu_amount', 'gpuAmount']),
+  }
 }
 
 function inferAutoDLUnifiedErrorCode(autoDLCode: string, message: string, httpStatus: number): string {
@@ -303,6 +385,27 @@ export async function probeAutoDLToken(params: ProbeAutoDLTokenParams): Promise<
       code: 'AUTODL_NETWORK_ERROR',
       message: error instanceof Error ? error.message : 'AutoDL 网络请求失败',
     }
+  }
+}
+
+export async function listAutoDLInstances(params: ListAutoDLInstancesParams): Promise<AutoDLInstanceListResult> {
+  const pageIndex = Number.isFinite(params.pageIndex) ? Math.max(1, Math.floor(params.pageIndex || 1)) : 1
+  const pageSize = Number.isFinite(params.pageSize) ? Math.min(100, Math.max(1, Math.floor(params.pageSize || 20))) : 20
+  const payload = await requestAutoDL<AutoDLInstanceListData>({
+    token: params.token,
+    path: '/api/v1/dev/instance/pro/list',
+    fetcher: params.fetcher,
+    baseUrl: params.baseUrl,
+    body: {
+      page_index: pageIndex,
+      page_size: pageSize,
+    },
+  })
+  const list = Array.isArray(payload.data?.list) ? payload.data.list : []
+  return {
+    total: typeof payload.data?.result_total === 'number' ? payload.data.result_total : list.length,
+    instances: list.map(normalizeAutoDLListedInstance).filter((item): item is AutoDLListedInstance => !!item),
+    requestId: payload.request_id,
   }
 }
 
