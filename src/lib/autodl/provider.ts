@@ -43,11 +43,38 @@ export interface BuildAutoDLWorkerProviderConfigParams {
   workerBaseUrl: string
   workerSharedSecretCiphertext: string
   modelBundle?: string | null
+  backendAvailability?: {
+    image?: boolean
+    video?: boolean
+    llm?: boolean
+    tts?: boolean
+  } | null
 }
 
 export interface UpsertAutoDLWorkerProviderParams extends BuildAutoDLWorkerProviderConfigParams {
   userId: string
 }
+
+const USER_DEFAULT_FIELDS = [
+  { field: 'analysisModel', type: 'llm' },
+  { field: 'characterModel', type: 'image' },
+  { field: 'locationModel', type: 'image' },
+  { field: 'storyboardModel', type: 'image' },
+  { field: 'editModel', type: 'image' },
+  { field: 'videoModel', type: 'video' },
+  { field: 'audioModel', type: 'audio' },
+] as const
+
+const PROJECT_MODEL_FIELDS = [
+  { field: 'analysisModel', type: 'llm' },
+  { field: 'imageModel', type: 'image' },
+  { field: 'characterModel', type: 'image' },
+  { field: 'locationModel', type: 'image' },
+  { field: 'storyboardModel', type: 'image' },
+  { field: 'editModel', type: 'image' },
+  { field: 'videoModel', type: 'video' },
+  { field: 'audioModel', type: 'audio' },
+] as const
 
 function parseArray<T>(rawValue: string | null | undefined): T[] {
   if (!rawValue) return []
@@ -157,6 +184,21 @@ function buildDirectApiTemplateForModel(model: LocalModelCatalogItem): Pick<Stor
   return {}
 }
 
+function isModelAllowedByBackend(
+  model: LocalModelCatalogItem,
+  backendAvailability: BuildAutoDLWorkerProviderConfigParams['backendAvailability'],
+): boolean {
+  if (model.modality === 'image') return backendAvailability?.image !== false
+  if (model.modality === 'video') return backendAvailability?.video !== false
+  if (model.modality === 'tts') return backendAvailability?.tts !== false
+  if (model.modality === 'llm') return backendAvailability?.llm !== false
+  return true
+}
+
+function findFirstModelKeyByType(models: StoredModel[], type: AutoDLWorkerModelType): string | null {
+  return models.find((model) => model.type === type)?.modelKey || null
+}
+
 export function buildAutoDLWorkerProviderConfig(
   params: BuildAutoDLWorkerProviderConfigParams,
 ): AutoDLWorkerProviderConfig {
@@ -167,6 +209,7 @@ export function buildAutoDLWorkerProviderConfig(
   const providerId = `openai-compatible:${params.sessionId}`
   const models = getLocalModelCatalogForBundle(params.profileId, params.modelBundle)
     .filter((model) => model.modality !== 'llm')
+    .filter((model) => isModelAllowedByBackend(model, params.backendAvailability))
     .map((model) => ({
       modelId: model.id,
       modelKey: composeModelKey(providerId, model.id),
@@ -219,14 +262,35 @@ export async function upsertAutoDLWorkerProvider(
   const firstImageModel = config.models.find((model) => model.type === 'image')?.modelKey
   const firstVideoModel = config.models.find((model) => model.type === 'video')?.modelKey
   const firstAudioModel = config.models.find((model) => model.type === 'audio')?.modelKey
-  const defaults = {
-    ...(!pref?.characterModel && firstImageModel ? { characterModel: firstImageModel } : {}),
-    ...(!pref?.locationModel && firstImageModel ? { locationModel: firstImageModel } : {}),
-    ...(!pref?.storyboardModel && firstImageModel ? { storyboardModel: firstImageModel } : {}),
-    ...(!pref?.editModel && firstImageModel ? { editModel: firstImageModel } : {}),
-    ...(!pref?.videoModel && firstVideoModel ? { videoModel: firstVideoModel } : {}),
-    ...(!pref?.audioModel && firstAudioModel ? { audioModel: firstAudioModel } : {}),
+  const providerPrefix = `${config.provider.id}::`
+  const enabledModelKeySet = new Set(models.map((model) => model.modelKey))
+  const firstProviderModelKeyByType: Partial<Record<AutoDLWorkerModelType, string | null>> = {
+    llm: findFirstModelKeyByType(config.models, 'llm'),
+    image: findFirstModelKeyByType(config.models, 'image'),
+    video: findFirstModelKeyByType(config.models, 'video'),
+    audio: findFirstModelKeyByType(config.models, 'audio'),
   }
+  const firstMergedModelKeyByType: Partial<Record<AutoDLWorkerModelType, string | null>> = {
+    llm: findFirstModelKeyByType(models, 'llm'),
+    image: findFirstModelKeyByType(models, 'image'),
+    video: findFirstModelKeyByType(models, 'video'),
+    audio: findFirstModelKeyByType(models, 'audio'),
+  }
+  const defaults = Object.fromEntries(
+    USER_DEFAULT_FIELDS.flatMap(({ field, type }) => {
+      const currentValue = pref?.[field]
+      if (typeof currentValue === 'string' && currentValue.trim() && enabledModelKeySet.has(currentValue)) {
+        return []
+      }
+      if (typeof currentValue === 'string' && currentValue.startsWith(providerPrefix)) {
+        return [[field, firstMergedModelKeyByType[type] ?? null]]
+      }
+      if (!currentValue && firstProviderModelKeyByType[type]) {
+        return [[field, firstProviderModelKeyByType[type]]]
+      }
+      return []
+    }),
+  ) as Partial<Record<(typeof USER_DEFAULT_FIELDS)[number]['field'], string | null>>
 
   await prisma.userPreference.upsert({
     where: { userId: params.userId },
@@ -249,6 +313,30 @@ export async function upsertAutoDLWorkerProvider(
       ...defaults,
     },
   })
+
+  await Promise.all(
+    PROJECT_MODEL_FIELDS.map(async ({ field, type }) => {
+      const validProviderModelKeys = config.models
+        .filter((model) => model.type === type)
+        .map((model) => model.modelKey)
+      await prisma.novelPromotionProject.updateMany({
+        where: {
+          project: { userId: params.userId },
+          [field]: validProviderModelKeys.length > 0
+            ? {
+              startsWith: providerPrefix,
+              notIn: validProviderModelKeys,
+            }
+            : {
+              startsWith: providerPrefix,
+            },
+        },
+        data: {
+          [field]: firstMergedModelKeyByType[type] ?? null,
+        },
+      })
+    }),
+  )
 
   return config
 }

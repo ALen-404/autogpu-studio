@@ -91,6 +91,7 @@ export const POST = apiHandler(async (
 
   let workerHealthy = false
   let workerUnauthorized = false
+  let workerBackends: Awaited<ReturnType<typeof probeAutoDLWorkerReadiness>>['backends'] = null
   const workerSecret = session.workerSharedSecretCiphertext
     ? decryptAutoDLWorkerSecret(session.workerSharedSecretCiphertext)
     : null
@@ -101,6 +102,7 @@ export const POST = apiHandler(async (
     })
     workerHealthy = readiness.healthy
     workerUnauthorized = readiness.unauthorized
+    workerBackends = readiness.backends
   }
 
   const autodlRunning = autodlStatus.trim().toLowerCase() === 'running'
@@ -133,6 +135,7 @@ export const POST = apiHandler(async (
         })
         workerHealthy = readiness.healthy
         workerUnauthorized = readiness.unauthorized
+        workerBackends = readiness.backends
       } catch {
         // 同步接口不能因为自动修复失败而中断，状态会继续反映当前 Worker 健康情况。
       }
@@ -147,6 +150,7 @@ export const POST = apiHandler(async (
       modelBundle: session.modelBundle,
       workerBaseUrl,
       workerSharedSecretCiphertext: session.workerSharedSecretCiphertext,
+      backendAvailability: workerBackends,
     }).catch(() => null)
     : null
 

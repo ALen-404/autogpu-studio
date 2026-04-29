@@ -3,6 +3,7 @@ import { buildCharactersIntroduction } from '@/lib/constants'
 import { normalizeAnyError } from '@/lib/errors/normalize'
 import { createScopedLogger } from '@/lib/logging/core'
 import { createClipContentMatcher, type ClipMatchLevel } from './clip-matching'
+import { buildFallbackClipMatches } from './clip-fallback'
 import { mapWithConcurrency } from '@/lib/async/map-with-concurrency'
 import {
   DEFAULT_ANALYSIS_WORKFLOW_CONCURRENCY,
@@ -445,16 +446,25 @@ export async function runStoryToScriptOrchestrator(
       continue
     }
 
+    const clipSeeds = rawClipList.map((item, index) => ({
+      id: `clip_${index + 1}`,
+      startText: asString(item.start),
+      endText: asString(item.end),
+      summary: asString(item.summary),
+      location: asString(item.location) || null,
+      characters: toStringArray(item.characters),
+      props: toStringArray(item.props),
+    }))
     const matcher = createClipContentMatcher(content)
     const nextClipList: StoryToScriptClipCandidate[] = []
     let searchFrom = 0
     let failedAt: { clipId: string; startText: string; endText: string } | null = null
 
-    for (let index = 0; index < rawClipList.length; index += 1) {
-      const item = rawClipList[index]
-      const startText = asString(item.start)
-      const endText = asString(item.end)
-      const clipId = `clip_${index + 1}`
+    for (let index = 0; index < clipSeeds.length; index += 1) {
+      const item = clipSeeds[index]
+      const startText = item.startText
+      const endText = item.endText
+      const clipId = item.id
       const match = matcher.matchBoundary(startText, endText, searchFrom)
       if (!match) {
         failedAt = { clipId, startText, endText }
@@ -465,10 +475,10 @@ export async function runStoryToScriptOrchestrator(
         id: clipId,
         startText,
         endText,
-        summary: asString(item.summary),
-        location: asString(item.location) || null,
-        characters: toStringArray(item.characters),
-        props: toStringArray(item.props),
+        summary: item.summary,
+        location: item.location,
+        characters: item.characters,
+        props: item.props,
         content: content.slice(match.startIndex, match.endIndex),
         matchLevel: match.level,
         matchConfidence: match.confidence,
@@ -501,6 +511,20 @@ export async function runStoryToScriptOrchestrator(
       startText: failedAt.startText,
       endText: failedAt.endText,
     })
+
+    if (attempt === MAX_SPLIT_BOUNDARY_ATTEMPTS) {
+      const fallbackClipList = buildFallbackClipMatches(content, clipSeeds)
+      if (fallbackClipList.length > 0) {
+        splitStep = output
+        clipList = fallbackClipList
+        onLog?.('片段边界匹配失败，回退为保底切片', {
+          attempt,
+          failedClip: failedAt.clipId,
+          fallbackClipCount: fallbackClipList.length,
+        })
+        break
+      }
+    }
   }
 
   if (!splitStep) {

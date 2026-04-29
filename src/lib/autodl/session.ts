@@ -224,6 +224,23 @@ export interface AutoDLWorkerReadiness {
   unauthorized: boolean
   statusCode: number | null
   message: string | null
+  backends: {
+    image: boolean
+    video: boolean
+    llm: boolean
+    tts: boolean
+  } | null
+}
+
+function normalizeAutoDLWorkerBackends(value: unknown): AutoDLWorkerReadiness['backends'] {
+  if (!value || typeof value !== 'object') return null
+  const backends = value as Record<string, unknown>
+  return {
+    image: backends.image === true,
+    video: backends.video === true,
+    llm: backends.llm === true,
+    tts: backends.tts === true,
+  }
 }
 
 export async function probeAutoDLWorkerReadiness(params: {
@@ -240,6 +257,7 @@ export async function probeAutoDLWorkerReadiness(params: {
       unauthorized: false,
       statusCode: null,
       message: 'missing_worker_config',
+      backends: null,
     }
   }
 
@@ -254,12 +272,13 @@ export async function probeAutoDLWorkerReadiness(params: {
       },
       signal: controller.signal,
     })
-    const payload = await response.json().catch(() => null) as { ok?: unknown; error?: unknown } | null
+    const payload = await response.json().catch(() => null) as { ok?: unknown; error?: unknown; backends?: unknown } | null
     return {
       healthy: response.ok && payload?.ok === true,
       unauthorized: response.status === 401 || response.status === 403,
       statusCode: response.status,
       message: typeof payload?.error === 'string' ? payload.error : response.statusText || null,
+      backends: normalizeAutoDLWorkerBackends(payload?.backends),
     }
   } catch (error) {
     return {
@@ -267,6 +286,7 @@ export async function probeAutoDLWorkerReadiness(params: {
       unauthorized: false,
       statusCode: null,
       message: error instanceof Error ? error.message : 'worker_probe_failed',
+      backends: null,
     }
   } finally {
     clearTimeout(timeout)

@@ -5,6 +5,7 @@ import { executeAiTextStep } from '@/lib/ai-runtime'
 import { withInternalLLMStreamCallbacks } from '@/lib/llm-observe/internal-stream-context'
 import { buildCharactersIntroduction } from '@/lib/constants'
 import { createClipContentMatcher } from '@/lib/novel-promotion/story-to-script/clip-matching'
+import { buildFallbackClipMatches } from '@/lib/novel-promotion/story-to-script/clip-fallback'
 import { reportTaskProgress } from '@/lib/workers/shared'
 import { assertTaskActive } from '@/lib/workers/utils'
 import { createWorkerLLMStreamCallbacks, createWorkerLLMStreamContext } from './llm-stream'
@@ -167,14 +168,27 @@ export async function handleClipsBuildTask(job: Job<TaskJobData>) {
         continue
       }
 
+      const clipSeeds = parsed.map((clipData, index) => ({
+        id: `clip_${index + 1}`,
+        startText: readText(clipData.start),
+        endText: readText(clipData.end),
+        summary: readText(clipData.summary),
+        location: readText(clipData.location) || null,
+        characters: Array.isArray(clipData.characters)
+          ? clipData.characters.filter((item): item is string => typeof item === 'string')
+          : [],
+        props: Array.isArray(clipData.props)
+          ? clipData.props.filter((item): item is string => typeof item === 'string')
+          : [],
+      }))
       const matcher = createClipContentMatcher(contentToProcess)
       const currentResolved: typeof resolvedClips = []
       let searchFrom = 0
       let failedAt: { index: number; startText: string; endText: string } | null = null
-      for (let i = 0; i < parsed.length; i += 1) {
-        const clipData = parsed[i]
-        const startText = readText(clipData.start)
-        const endText = readText(clipData.end)
+      for (let i = 0; i < clipSeeds.length; i += 1) {
+        const clipData = clipSeeds[i]
+        const startText = clipData.startText
+        const endText = clipData.endText
         const match = matcher.matchBoundary(startText, endText, searchFrom)
         if (!match) {
           failedAt = { index: i + 1, startText, endText }
@@ -183,8 +197,8 @@ export async function handleClipsBuildTask(job: Job<TaskJobData>) {
         currentResolved.push({
           startText,
           endText,
-          summary: readText(clipData.summary),
-          location: readText(clipData.location) || null,
+          summary: clipData.summary,
+          location: clipData.location,
           characters: clipData.characters,
           props: clipData.props,
           content: contentToProcess.slice(match.startIndex, match.endIndex),
@@ -200,6 +214,21 @@ export async function handleClipsBuildTask(job: Job<TaskJobData>) {
       lastBoundaryError = new Error(
         `split_clips boundary matching failed at clip_${failedAt.index}: start="${failedAt.startText}" end="${failedAt.endText}"`,
       )
+      if (attempt === MAX_SPLIT_BOUNDARY_ATTEMPTS) {
+        const fallbackClips = buildFallbackClipMatches(contentToProcess, clipSeeds)
+        if (fallbackClips.length > 0) {
+          resolvedClips.push(...fallbackClips.map((clip) => ({
+            startText: clip.startText,
+            endText: clip.endText,
+            summary: clip.summary,
+            location: clip.location,
+            characters: clip.characters,
+            props: clip.props,
+            content: clip.content,
+          })))
+          break
+        }
+      }
     }
   } finally {
     await streamCallbacks.flush()
@@ -234,7 +263,9 @@ export async function handleClipsBuildTask(job: Job<TaskJobData>) {
           summary: clipData.summary,
           location: clipData.location,
           characters: clipData.characters ? JSON.stringify(clipData.characters) : null,
-          props: clipData.props ? JSON.stringify(clipData.props) : null,
+          props: Array.isArray(clipData.props) && clipData.props.length > 0
+            ? JSON.stringify(clipData.props)
+            : null,
           content: clipData.content,
         },
         select: { id: true },
@@ -251,7 +282,9 @@ export async function handleClipsBuildTask(job: Job<TaskJobData>) {
         summary: clipData.summary,
         location: clipData.location,
         characters: clipData.characters ? JSON.stringify(clipData.characters) : null,
-        props: clipData.props ? JSON.stringify(clipData.props) : null,
+        props: Array.isArray(clipData.props) && clipData.props.length > 0
+          ? JSON.stringify(clipData.props)
+          : null,
         content: clipData.content,
       },
       select: { id: true },

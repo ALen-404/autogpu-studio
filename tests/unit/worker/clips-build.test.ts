@@ -48,6 +48,9 @@ vi.mock('@/lib/prompt-i18n', () => ({
   PROMPT_IDS: { NP_AGENT_CLIP: 'np_agent_clip' },
   buildPrompt: vi.fn(() => 'clip-split-prompt'),
 }))
+vi.mock('@/lib/workers/handlers/resolve-analysis-model', () => ({
+  resolveAnalysisModel: vi.fn(async () => 'llm::analysis-1'),
+}))
 vi.mock('@/lib/novel-promotion/story-to-script/clip-matching', () => ({
   createClipContentMatcher: (content: string) => ({
     matchBoundary: (start: string, end: string, fromIndex = 0) => {
@@ -144,18 +147,32 @@ describe('worker clips-build behavior', () => {
     })
   })
 
-  it('AI boundaries cannot be matched -> explicit boundary error', async () => {
+  it('AI boundaries cannot be matched -> falls back to original episode content', async () => {
     llmMock.getCompletionContent.mockReturnValue(
       JSON.stringify([
         {
-          start: 'NOT_FOUND_START',
-          end: 'NOT_FOUND_END',
+          start: '以下是一个简短、有趣的小剧本，适合1-3分钟表演（3人短剧）：',
+          end: '小美：（惊喜）哇！终于到了！我都快饿死了！',
           summary: 'bad clip',
+          location: 'Old Town',
+          characters: ['Hero'],
         },
       ]),
     )
 
     const job = buildJob({ episodeId: 'episode-1' })
-    await expect(handleClipsBuildTask(job)).rejects.toThrow('split_clips boundary matching failed')
+    const result = await handleClipsBuildTask(job)
+
+    expect(result).toEqual({ episodeId: 'episode-1', count: 1 })
+    expect(prismaMock.novelPromotionClip.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        episodeId: 'episode-1',
+        summary: 'bad clip',
+        location: 'Old Town',
+        characters: JSON.stringify(['Hero']),
+        content: 'A START one END B START two END C',
+      }),
+      select: { id: true },
+    })
   })
 })
