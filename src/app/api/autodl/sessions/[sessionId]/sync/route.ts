@@ -13,6 +13,7 @@ import {
   isAutoDLPublicServerUrlReachableFromInstance,
   normalizeAutoDLPaygPrice,
   probeAutoDLWorkerReadiness,
+  removeAutoDLWorkerProvider,
   resolveAutoDLSessionRuntimeStatus,
   resolveAutoDLWorkerBaseUrl,
   upsertAutoDLWorkerProvider,
@@ -159,6 +160,14 @@ export const POST = apiHandler(async (
     workerUnauthorized,
     startedAt: session.startedAt,
   })
+
+  if (status === 'stopped' || status === 'released' || status === 'failed') {
+    await removeAutoDLWorkerProvider({
+      userId,
+      sessionId: session.id,
+    }).catch(() => undefined)
+  }
+
   const updated = await prisma.autoDLInstanceSession.update({
     where: { id: session.id },
     data: {

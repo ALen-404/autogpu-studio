@@ -6,6 +6,7 @@ import {
   buildAutoDLSessionView,
   decryptAutoDLToken,
   powerOffAutoDLInstance,
+  removeAutoDLWorkerProvider,
   releaseAutoDLInstance,
 } from '@/lib/autodl'
 
@@ -79,6 +80,11 @@ export const POST = apiHandler(async (
     },
     select: sessionSelect,
   })
+
+  await removeAutoDLWorkerProvider({
+    userId,
+    sessionId: session.id,
+  }).catch(() => undefined)
 
   return NextResponse.json({
     success: true,

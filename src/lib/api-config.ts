@@ -308,6 +308,40 @@ function findModelByKey(models: CustomModel[], modelKey: string): CustomModel | 
   return models.find((model) => model.modelId === parsed.modelId && model.provider === parsed.provider) || null
 }
 
+function parseAutoDLSessionIdFromProviderId(providerId: string): string | null {
+  const match = /^openai-compatible:([0-9a-f-]{36})$/i.exec(providerId.trim())
+  return match?.[1] || null
+}
+
+async function filterUnavailableAutoDLModels(userId: string, models: CustomModel[]): Promise<CustomModel[]> {
+  const sessionIds = Array.from(new Set(
+    models
+      .map((model) => parseAutoDLSessionIdFromProviderId(model.provider))
+      .filter((sessionId): sessionId is string => !!sessionId),
+  ))
+  if (sessionIds.length === 0) return models
+
+  const sessions = await prisma.autoDLInstanceSession.findMany({
+    where: {
+      userId,
+      id: { in: sessionIds },
+    },
+    select: {
+      id: true,
+      status: true,
+    },
+  })
+  const statusBySessionId = new Map(sessions.map((session) => [session.id, session.status]))
+
+  return models.filter((model) => {
+    const sessionId = parseAutoDLSessionIdFromProviderId(model.provider)
+    if (!sessionId) return true
+    const status = statusBySessionId.get(sessionId)
+    if (!status) return true
+    return status === 'worker_ready'
+  })
+}
+
 /**
  * 提取提供商主键（用于多实例场景，如 gemini-compatible:uuid）
  */
@@ -438,7 +472,7 @@ export async function getProviderConfig(userId: string, providerId: string): Pro
  */
 export async function getUserModels(userId: string): Promise<CustomModel[]> {
   const { models } = await readUserConfig(userId)
-  return models
+  return await filterUnavailableAutoDLModels(userId, models)
 }
 
 /**

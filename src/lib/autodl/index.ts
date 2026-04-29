@@ -84,8 +84,10 @@ export {
 } from './session'
 export {
   buildAutoDLWorkerProviderConfig,
+  removeAutoDLWorkerProvider,
   upsertAutoDLWorkerProvider,
   type AutoDLWorkerProviderConfig,
   type BuildAutoDLWorkerProviderConfigParams,
+  type RemoveAutoDLWorkerProviderParams,
   type UpsertAutoDLWorkerProviderParams,
 } from './provider'

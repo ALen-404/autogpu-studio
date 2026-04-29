@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma'
 import {
   buildAutoDLSessionView,
   decryptAutoDLToken,
+  removeAutoDLWorkerProvider,
   powerOffAutoDLInstance,
 } from '@/lib/autodl'
 
@@ -65,6 +66,11 @@ export const POST = apiHandler(async (
     },
     select: sessionSelect,
   })
+
+  await removeAutoDLWorkerProvider({
+    userId,
+    sessionId: session.id,
+  }).catch(() => undefined)
 
   return NextResponse.json({
     success: true,

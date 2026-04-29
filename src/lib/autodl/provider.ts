@@ -55,6 +55,11 @@ export interface UpsertAutoDLWorkerProviderParams extends BuildAutoDLWorkerProvi
   userId: string
 }
 
+export interface RemoveAutoDLWorkerProviderParams {
+  userId: string
+  sessionId: string
+}
+
 const USER_DEFAULT_FIELDS = [
   { field: 'analysisModel', type: 'llm' },
   { field: 'characterModel', type: 'image' },
@@ -75,6 +80,18 @@ const PROJECT_MODEL_FIELDS = [
   { field: 'videoModel', type: 'video' },
   { field: 'audioModel', type: 'audio' },
 ] as const
+
+const USER_PREFERENCE_MODEL_SELECT = {
+  customProviders: true,
+  customModels: true,
+  characterModel: true,
+  locationModel: true,
+  storyboardModel: true,
+  editModel: true,
+  videoModel: true,
+  audioModel: true,
+  analysisModel: true,
+} as const
 
 function parseArray<T>(rawValue: string | null | undefined): T[] {
   if (!rawValue) return []
@@ -199,6 +216,44 @@ function findFirstModelKeyByType(models: StoredModel[], type: AutoDLWorkerModelT
   return models.find((model) => model.type === type)?.modelKey || null
 }
 
+function buildFirstModelKeyByType(models: StoredModel[]): Partial<Record<AutoDLWorkerModelType, string | null>> {
+  return {
+    llm: findFirstModelKeyByType(models, 'llm'),
+    image: findFirstModelKeyByType(models, 'image'),
+    video: findFirstModelKeyByType(models, 'video'),
+    audio: findFirstModelKeyByType(models, 'audio'),
+  }
+}
+
+async function updateAutoDLProjectModelBindings(params: {
+  userId: string
+  providerPrefix: string
+  validProviderModelKeysByType: Partial<Record<AutoDLWorkerModelType, string[]>>
+  fallbackModelKeyByType: Partial<Record<AutoDLWorkerModelType, string | null>>
+}) {
+  await Promise.all(
+    PROJECT_MODEL_FIELDS.map(async ({ field, type }) => {
+      const validProviderModelKeys = params.validProviderModelKeysByType[type] || []
+      await prisma.novelPromotionProject.updateMany({
+        where: {
+          project: { userId: params.userId },
+          [field]: validProviderModelKeys.length > 0
+            ? {
+              startsWith: params.providerPrefix,
+              notIn: validProviderModelKeys,
+            }
+            : {
+              startsWith: params.providerPrefix,
+            },
+        },
+        data: {
+          [field]: params.fallbackModelKeyByType[type] ?? null,
+        },
+      })
+    }),
+  )
+}
+
 export function buildAutoDLWorkerProviderConfig(
   params: BuildAutoDLWorkerProviderConfigParams,
 ): AutoDLWorkerProviderConfig {
@@ -239,17 +294,7 @@ export async function upsertAutoDLWorkerProvider(
   const config = buildAutoDLWorkerProviderConfig(params)
   const pref = await prisma.userPreference.findUnique({
     where: { userId: params.userId },
-    select: {
-      customProviders: true,
-      customModels: true,
-      characterModel: true,
-      locationModel: true,
-      storyboardModel: true,
-      editModel: true,
-      videoModel: true,
-      audioModel: true,
-      analysisModel: true,
-    },
+    select: USER_PREFERENCE_MODEL_SELECT,
   })
 
   const providers = parseArray<StoredProvider>(pref?.customProviders)
@@ -264,18 +309,8 @@ export async function upsertAutoDLWorkerProvider(
   const firstAudioModel = config.models.find((model) => model.type === 'audio')?.modelKey
   const providerPrefix = `${config.provider.id}::`
   const enabledModelKeySet = new Set(models.map((model) => model.modelKey))
-  const firstProviderModelKeyByType: Partial<Record<AutoDLWorkerModelType, string | null>> = {
-    llm: findFirstModelKeyByType(config.models, 'llm'),
-    image: findFirstModelKeyByType(config.models, 'image'),
-    video: findFirstModelKeyByType(config.models, 'video'),
-    audio: findFirstModelKeyByType(config.models, 'audio'),
-  }
-  const firstMergedModelKeyByType: Partial<Record<AutoDLWorkerModelType, string | null>> = {
-    llm: findFirstModelKeyByType(models, 'llm'),
-    image: findFirstModelKeyByType(models, 'image'),
-    video: findFirstModelKeyByType(models, 'video'),
-    audio: findFirstModelKeyByType(models, 'audio'),
-  }
+  const firstProviderModelKeyByType = buildFirstModelKeyByType(config.models)
+  const firstMergedModelKeyByType = buildFirstModelKeyByType(models)
   const defaults = Object.fromEntries(
     USER_DEFAULT_FIELDS.flatMap(({ field, type }) => {
       const currentValue = pref?.[field]
@@ -314,29 +349,62 @@ export async function upsertAutoDLWorkerProvider(
     },
   })
 
-  await Promise.all(
-    PROJECT_MODEL_FIELDS.map(async ({ field, type }) => {
-      const validProviderModelKeys = config.models
-        .filter((model) => model.type === type)
-        .map((model) => model.modelKey)
-      await prisma.novelPromotionProject.updateMany({
-        where: {
-          project: { userId: params.userId },
-          [field]: validProviderModelKeys.length > 0
-            ? {
-              startsWith: providerPrefix,
-              notIn: validProviderModelKeys,
-            }
-            : {
-              startsWith: providerPrefix,
-            },
-        },
-        data: {
-          [field]: firstMergedModelKeyByType[type] ?? null,
-        },
-      })
-    }),
-  )
+  await updateAutoDLProjectModelBindings({
+    userId: params.userId,
+    providerPrefix,
+    validProviderModelKeysByType: {
+      llm: config.models.filter((model) => model.type === 'llm').map((model) => model.modelKey),
+      image: config.models.filter((model) => model.type === 'image').map((model) => model.modelKey),
+      video: config.models.filter((model) => model.type === 'video').map((model) => model.modelKey),
+      audio: config.models.filter((model) => model.type === 'audio').map((model) => model.modelKey),
+    },
+    fallbackModelKeyByType: firstMergedModelKeyByType,
+  })
 
   return config
+}
+
+export async function removeAutoDLWorkerProvider(
+  params: RemoveAutoDLWorkerProviderParams,
+): Promise<void> {
+  const providerId = `openai-compatible:${params.sessionId}`
+  const providerPrefix = `${providerId}::`
+  const pref = await prisma.userPreference.findUnique({
+    where: { userId: params.userId },
+    select: USER_PREFERENCE_MODEL_SELECT,
+  })
+
+  if (!pref) return
+
+  const providers = parseArray<StoredProvider>(pref.customProviders)
+    .filter((provider) => provider.id !== providerId)
+  const models = parseArray<StoredModel>(pref.customModels)
+    .filter((model) => model.provider !== providerId)
+  const firstRemainingModelKeyByType = buildFirstModelKeyByType(models)
+
+  const defaults = Object.fromEntries(
+    USER_DEFAULT_FIELDS.flatMap(({ field, type }) => {
+      const currentValue = pref[field]
+      if (typeof currentValue === 'string' && currentValue.startsWith(providerPrefix)) {
+        return [[field, firstRemainingModelKeyByType[type] ?? null]]
+      }
+      return []
+    }),
+  ) as Partial<Record<(typeof USER_DEFAULT_FIELDS)[number]['field'], string | null>>
+
+  await prisma.userPreference.update({
+    where: { userId: params.userId },
+    data: {
+      customProviders: JSON.stringify(providers),
+      customModels: JSON.stringify(models),
+      ...defaults,
+    },
+  })
+
+  await updateAutoDLProjectModelBindings({
+    userId: params.userId,
+    providerPrefix,
+    validProviderModelKeysByType: {},
+    fallbackModelKeyByType: firstRemainingModelKeyByType,
+  })
 }
