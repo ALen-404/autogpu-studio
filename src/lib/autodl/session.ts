@@ -355,6 +355,28 @@ export AUTOGPU_LLM_BACKEND="$LLM_BACKEND"
 
 mkdir -p "$WORKDIR"
 
+LOCKDIR="$WORKDIR/.bootstrap.lock"
+if mkdir "$LOCKDIR" >/dev/null 2>&1; then
+  echo "$$" > "$LOCKDIR/pid"
+else
+  if [ -f "$LOCKDIR/pid" ]; then
+    LOCK_PID="$(cat "$LOCKDIR/pid" 2>/dev/null || true)"
+    if [ -n "$LOCK_PID" ] && kill -0 "$LOCK_PID" >/dev/null 2>&1; then
+      echo "AutoGPU bootstrap already running"
+      exit 0
+    fi
+  fi
+  rm -rf "$LOCKDIR"
+  mkdir -p "$LOCKDIR"
+  echo "$$" > "$LOCKDIR/pid"
+fi
+
+cleanup_bootstrap_lock() {
+  rm -rf "$LOCKDIR" >/dev/null 2>&1 || true
+}
+
+trap cleanup_bootstrap_lock EXIT
+
 cat > "$WORKDIR/worker.py" <<'PY'
 import base64
 import inspect
