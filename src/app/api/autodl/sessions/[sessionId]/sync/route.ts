@@ -4,16 +4,20 @@ import { apiHandler, ApiError } from '@/lib/api-errors'
 import { prisma } from '@/lib/prisma'
 import {
   buildAutoDLSessionView,
+  buildAutoDLWorkerStartCommand,
   decryptAutoDLToken,
   decryptAutoDLWorkerSecret,
   getAutoDLInstanceSnapshot,
   getAutoDLInstanceStatus,
+  getAutoDLPublicServerUrl,
+  isAutoDLPublicServerUrlReachableFromInstance,
   normalizeAutoDLPaygPrice,
   probeAutoDLWorkerReadiness,
   resolveAutoDLSessionRuntimeStatus,
   resolveAutoDLWorkerBaseUrl,
   upsertAutoDLWorkerProvider,
 } from '@/lib/autodl'
+import { runAutoDLWorkerStartCommandOverSsh } from '@/lib/autodl/ssh'
 
 const sessionSelect = {
   id: true,
@@ -32,7 +36,7 @@ const sessionSelect = {
 } as const
 
 export const POST = apiHandler(async (
-  _request: NextRequest,
+  request: NextRequest,
   context: { params: Promise<{ sessionId: string }> },
 ) => {
   const authResult = await requireUserAuth()
@@ -73,8 +77,9 @@ export const POST = apiHandler(async (
 
   let workerBaseUrl: string | null = null
   let paygPrice: number | null = null
+  let snapshot: Awaited<ReturnType<typeof getAutoDLInstanceSnapshot>> | null = null
   try {
-    const snapshot = await getAutoDLInstanceSnapshot({
+    snapshot = await getAutoDLInstanceSnapshot({
       token,
       instanceUuid: session.instanceUuid,
     })
@@ -86,13 +91,52 @@ export const POST = apiHandler(async (
 
   let workerHealthy = false
   let workerUnauthorized = false
+  const workerSecret = session.workerSharedSecretCiphertext
+    ? decryptAutoDLWorkerSecret(session.workerSharedSecretCiphertext)
+    : null
   if (workerBaseUrl && session.workerSharedSecretCiphertext) {
     const readiness = await probeAutoDLWorkerReadiness({
       workerBaseUrl,
-      workerSecret: decryptAutoDLWorkerSecret(session.workerSharedSecretCiphertext),
+      workerSecret: workerSecret || '',
     })
     workerHealthy = readiness.healthy
     workerUnauthorized = readiness.unauthorized
+  }
+
+  const autodlRunning = autodlStatus.trim().toLowerCase() === 'running'
+  if (
+    autodlRunning
+    && !workerHealthy
+    && workerUnauthorized
+    && workerBaseUrl
+    && workerSecret
+    && snapshot?.ssh_command
+    && snapshot.root_password
+  ) {
+    const serverUrl = getAutoDLPublicServerUrl(request.nextUrl.origin)
+    if (isAutoDLPublicServerUrlReachableFromInstance(serverUrl)) {
+      try {
+        await runAutoDLWorkerStartCommandOverSsh({
+          sshCommand: snapshot.ssh_command,
+          rootPassword: snapshot.root_password,
+          startCommand: buildAutoDLWorkerStartCommand({
+            serverUrl,
+            preferredPort,
+            modelBundle: session.modelBundle || 'balanced',
+            workerSecret,
+          }),
+        })
+        const readiness = await probeAutoDLWorkerReadiness({
+          workerBaseUrl,
+          workerSecret,
+          timeoutMs: 15_000,
+        })
+        workerHealthy = readiness.healthy
+        workerUnauthorized = readiness.unauthorized
+      } catch {
+        // 同步接口不能因为自动修复失败而中断，状态会继续反映当前 Worker 健康情况。
+      }
+    }
   }
 
   const provider = workerHealthy && workerBaseUrl && session.workerSharedSecretCiphertext

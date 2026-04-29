@@ -32,7 +32,9 @@ const autoDLMock = vi.hoisted(() => ({
   getAutoDLInstanceSnapshot: vi.fn(),
   isAutoDLPublicServerUrlReachableFromInstance: vi.fn(() => true),
   powerOnAutoDLInstance: vi.fn(),
+  probeAutoDLWorkerReadiness: vi.fn(),
   runAutoDLWorkerStartCommandOverSsh: vi.fn(),
+  upsertAutoDLWorkerProvider: vi.fn(),
 }))
 
 vi.mock('@/lib/api-auth', () => authMock)
@@ -51,6 +53,8 @@ vi.mock('@/lib/autodl', async () => {
     isAutoDLPublicServerUrlReachableFromInstance: autoDLMock.isAutoDLPublicServerUrlReachableFromInstance,
     listAutoDLInstances: autoDLMock.listAutoDLInstances,
     powerOnAutoDLInstance: autoDLMock.powerOnAutoDLInstance,
+    probeAutoDLWorkerReadiness: autoDLMock.probeAutoDLWorkerReadiness,
+    upsertAutoDLWorkerProvider: autoDLMock.upsertAutoDLWorkerProvider,
   }
 })
 vi.mock('@/lib/autodl/ssh', () => ({
@@ -127,6 +131,16 @@ describe('api contract - AutoDL sessions', () => {
       ok: true,
       message: 'ok',
       requestId: 'ssh_reinject',
+    })
+    autoDLMock.probeAutoDLWorkerReadiness.mockResolvedValue({
+      healthy: false,
+      unauthorized: false,
+      statusCode: null,
+      message: 'worker_probe_failed',
+    })
+    autoDLMock.upsertAutoDLWorkerProvider.mockResolvedValue({
+      id: 'provider-1',
+      providerType: 'autodl_worker',
     })
   })
 
@@ -463,6 +477,101 @@ describe('api contract - AutoDL sessions', () => {
     expect(json.session).toMatchObject({
       id: 'session-1',
       status: 'booting',
+    })
+  })
+
+  it('POST /api/autodl/sessions/:id/sync 遇到旧 Worker 密钥时自动 SSH 修复', async () => {
+    autoDLMock.getAutoDLInstanceStatus.mockResolvedValue('running')
+    autoDLMock.getAutoDLInstanceSnapshot.mockResolvedValue({
+      payg_price: 5980,
+      service_6006_domain: 'worker.example.autodl.com:8443',
+      service_6006_port_protocol: 'http',
+      ssh_command: 'ssh -p 32123 root@connect.autodl.example',
+      root_password: 'root-password',
+    })
+    autoDLMock.probeAutoDLWorkerReadiness
+      .mockResolvedValueOnce({
+        healthy: false,
+        unauthorized: true,
+        statusCode: 401,
+        message: 'unauthorized',
+      })
+      .mockResolvedValueOnce({
+        healthy: true,
+        unauthorized: false,
+        statusCode: 200,
+        message: null,
+      })
+    prismaMock.autoDLInstanceSession.findFirst.mockResolvedValue({
+      id: 'session-1',
+      instanceUuid: 'pro-77742ca0bda5',
+      profileId: 'pro6000-p',
+      modelBundle: 'balanced',
+      startedAt: new Date('2026-04-29T05:10:00.000Z'),
+      workerSharedSecretCiphertext: 'existing-worker-secret-cipher',
+      connection: {
+        tokenCiphertext: 'encrypted-token',
+        preferredPort: 6006,
+      },
+    })
+    prismaMock.autoDLInstanceSession.update.mockResolvedValue({
+      id: 'session-1',
+      instanceUuid: 'pro-77742ca0bda5',
+      profileId: 'pro6000-p',
+      imageUuid: 'base-image',
+      modelBundle: 'balanced',
+      status: 'worker_ready',
+      autodlStatus: 'running',
+      workerBaseUrl: 'https://worker.example.autodl.com:8443',
+      workerSharedSecretCiphertext: 'existing-worker-secret-cipher',
+      paygPrice: 5980,
+      createdAt: new Date('2026-04-29T05:00:00.000Z'),
+      updatedAt: new Date('2026-04-29T05:10:00.000Z'),
+      startedAt: new Date('2026-04-29T05:10:00.000Z'),
+      releasedAt: null,
+    })
+
+    const mod = await import('@/app/api/autodl/sessions/[sessionId]/sync/route')
+    const req = buildMockRequest({
+      path: '/api/autodl/sessions/session-1/sync',
+      method: 'POST',
+    })
+
+    const res = await mod.POST(req, { params: Promise.resolve({ sessionId: 'session-1' }) })
+    const json = await res.json() as {
+      success: boolean
+      workerHealthy: boolean
+      session: { id: string; status: string }
+    }
+
+    expect(res.status).toBe(200)
+    expect(json.success).toBe(true)
+    expect(json.workerHealthy).toBe(true)
+    expect(autoDLMock.runAutoDLWorkerStartCommandOverSsh).toHaveBeenCalledWith({
+      sshCommand: 'ssh -p 32123 root@connect.autodl.example',
+      rootPassword: 'root-password',
+      startCommand: 'AUTOGPU_WORKER_SECRET=existing-worker-secret bash -lc start',
+    })
+    expect(autoDLMock.probeAutoDLWorkerReadiness).toHaveBeenCalledTimes(2)
+    expect(autoDLMock.upsertAutoDLWorkerProvider).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'user-1',
+      sessionId: 'session-1',
+      profileId: 'pro6000-p',
+      modelBundle: 'balanced',
+      workerBaseUrl: 'https://worker.example.autodl.com:8443',
+      workerSharedSecretCiphertext: 'existing-worker-secret-cipher',
+    }))
+    expect(prismaMock.autoDLInstanceSession.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        status: 'worker_ready',
+        autodlStatus: 'running',
+        workerBaseUrl: 'https://worker.example.autodl.com:8443',
+        paygPrice: 5980,
+      }),
+    }))
+    expect(json.session).toMatchObject({
+      id: 'session-1',
+      status: 'worker_ready',
     })
   })
 })
