@@ -7,10 +7,23 @@ import {
     type ModelCapabilities,
     type UnifiedModelType,
 } from '@/lib/model-config-contract'
+import {
+    XIAOMI_MIMO_AUDIO_MODEL_ID,
+    XIAOMI_MIMO_BASE_URL,
+    XIAOMI_MIMO_DEFAULT_MODEL_ID,
+    XIAOMI_MIMO_PROVIDER_ID,
+    XIAOMI_MIMO_VOICE_DESIGN_MODEL_ID,
+} from '@/lib/xiaomi-mimo'
 import type {
     OpenAICompatMediaTemplate,
     OpenAICompatMediaTemplateSource,
 } from '@/lib/openai-compat-media-template'
+
+export {
+    XIAOMI_MIMO_BASE_URL,
+    XIAOMI_MIMO_DEFAULT_MODEL_ID,
+    XIAOMI_MIMO_PROVIDER_ID,
+} from '@/lib/xiaomi-mimo'
 
 // 统一提供商接口
 export interface Provider {
@@ -88,9 +101,6 @@ export interface ApiConfig {
 
 type PresetModel = Omit<CustomModel, 'enabled' | 'modelKey' | 'price'>
 
-export const XIAOMI_MIMO_PROVIDER_ID = 'openai-compatible:xiaomi-mimo'
-export const XIAOMI_MIMO_BASE_URL = 'https://api.xiaomimimo.com/v1'
-export const XIAOMI_MIMO_DEFAULT_MODEL_ID = 'mimo-v2.5-pro'
 export const XIAOMI_MIMO_DEFAULT_MODEL_KEY = composeModelKey(
     XIAOMI_MIMO_PROVIDER_ID,
     XIAOMI_MIMO_DEFAULT_MODEL_ID,
@@ -100,8 +110,9 @@ export const XIAOMI_MIMO_DEFAULT_MODEL_KEY = composeModelKey(
 export const PRESET_MODELS: PresetModel[] = [
     // 文本模型
     { modelId: XIAOMI_MIMO_DEFAULT_MODEL_ID, name: 'MiMo V2.5 Pro', type: 'llm', provider: XIAOMI_MIMO_PROVIDER_ID, llmProtocol: 'chat-completions' },
-    { modelId: 'mimo-v2.5', name: 'MiMo V2.5', type: 'llm', provider: XIAOMI_MIMO_PROVIDER_ID, llmProtocol: 'chat-completions' },
-    { modelId: 'mimo-v2-flash', name: 'MiMo V2 Flash', type: 'llm', provider: XIAOMI_MIMO_PROVIDER_ID, llmProtocol: 'chat-completions' },
+    { modelId: 'MiMo-V2.5', name: 'MiMo V2.5', type: 'llm', provider: XIAOMI_MIMO_PROVIDER_ID, llmProtocol: 'chat-completions' },
+    { modelId: 'MiMo-V2-Pro', name: 'MiMo V2 Pro', type: 'llm', provider: XIAOMI_MIMO_PROVIDER_ID, llmProtocol: 'chat-completions' },
+    { modelId: 'MiMo-V2-Omni', name: 'MiMo V2 Omni', type: 'llm', provider: XIAOMI_MIMO_PROVIDER_ID, llmProtocol: 'chat-completions' },
     { modelId: 'google/gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro', type: 'llm', provider: 'openrouter' },
     { modelId: 'google/gemini-3-pro-preview', name: 'Gemini 3 Pro', type: 'llm', provider: 'openrouter' },
     { modelId: 'google/gemini-3-flash-preview', name: 'Gemini 3 Flash', type: 'llm', provider: 'openrouter' },
@@ -172,6 +183,10 @@ export const PRESET_MODELS: PresetModel[] = [
     { modelId: 'fal-ai/kling-video/v3/pro/image-to-video', name: 'Kling 3 Pro', type: 'video', provider: 'fal' },
 
     // 音频模型
+    { modelId: 'MiMo-V2.5-TTS-VoiceClone', name: 'MiMo V2.5 TTS VoiceClone', type: 'audio', provider: XIAOMI_MIMO_PROVIDER_ID },
+    { modelId: XIAOMI_MIMO_VOICE_DESIGN_MODEL_ID, name: 'MiMo V2.5 TTS VoiceDesign', type: 'audio', provider: XIAOMI_MIMO_PROVIDER_ID },
+    { modelId: XIAOMI_MIMO_AUDIO_MODEL_ID, name: 'MiMo V2.5 TTS', type: 'audio', provider: XIAOMI_MIMO_PROVIDER_ID },
+    { modelId: 'MiMo-V2-TTS', name: 'MiMo V2 TTS', type: 'audio', provider: XIAOMI_MIMO_PROVIDER_ID },
     { modelId: 'fal-ai/index-tts-2/text-to-speech', name: 'IndexTTS 2', type: 'audio', provider: 'fal' },
     { modelId: 'qwen3-tts-vd-2026-01-26', name: 'Qwen3 TTS', type: 'audio', provider: 'bailian' },
     { modelId: 'qwen-voice-design', name: 'Qwen Voice Design', type: 'audio', provider: 'bailian' },

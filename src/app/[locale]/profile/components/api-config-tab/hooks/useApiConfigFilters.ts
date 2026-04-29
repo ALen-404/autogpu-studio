@@ -3,6 +3,7 @@
 import { useMemo } from 'react'
 import type { CustomModel, Provider } from '../../api-config'
 import { PRESET_PROVIDERS, getProviderKey } from '../../api-config'
+import { XIAOMI_MIMO_VOICE_DESIGN_MODEL_ID } from '@/lib/xiaomi-mimo'
 
 interface UseApiConfigFiltersParams {
   providers: Provider[]
@@ -20,6 +21,7 @@ const HIDDEN_PROVIDER_KEYS = new Set(['siliconflow'])
 const PROVIDER_MODEL_TYPES: Array<'llm' | 'image' | 'video' | 'audio' | 'lipsync'> = ['llm', 'image', 'video', 'audio', 'lipsync']
 const DEFAULT_AUDIO_EXCLUDED_MODEL_IDS = new Set([
   'qwen-voice-design',
+  XIAOMI_MIMO_VOICE_DESIGN_MODEL_ID,
 ])
 const MODEL_PROVIDER_KEYS = [
   'ark',

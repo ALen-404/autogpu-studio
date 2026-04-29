@@ -18,6 +18,12 @@ import {
     type PricingDisplayItem,
     type PricingDisplayMap,
 } from './types'
+import {
+    XIAOMI_MIMO_AUDIO_MODEL_KEY,
+    XIAOMI_MIMO_VOICE_DESIGN_MODEL_KEY,
+    normalizeXiaomiMiMoBaseUrl,
+    normalizeXiaomiMiMoModelKey,
+} from '@/lib/xiaomi-mimo'
 import type { CapabilitySelections, CapabilityValue } from '@/lib/model-config-contract'
 import {
     DEFAULT_ANALYSIS_WORKFLOW_CONCURRENCY,
@@ -90,7 +96,11 @@ export function mergeProvidersForDisplay(
             const apiKey = savedProvider.apiKey || ''
             const providerBaseUrl = providerKey === 'minimax'
                 ? matchedPreset.baseUrl
-                : (savedProvider.baseUrl || matchedPreset.baseUrl)
+                : (
+                    providerKey === 'openai-compatible' && savedProvider.id === XIAOMI_MIMO_PROVIDER_ID
+                        ? normalizeXiaomiMiMoBaseUrl(savedProvider.baseUrl || matchedPreset.baseUrl)
+                        : (savedProvider.baseUrl || matchedPreset.baseUrl)
+                )
             merged.push({
                 ...matchedPreset,
                 apiKey,
@@ -127,6 +137,11 @@ export function applyXiaomiMiMoTextDefaults(params: {
     models: CustomModel[]
     defaultModels: DefaultModels
 }): { models: CustomModel[]; defaultModels: DefaultModels; changed: boolean } {
+    const xiaomiModelKeysToEnable = new Set([
+        XIAOMI_MIMO_DEFAULT_MODEL_KEY,
+        XIAOMI_MIMO_AUDIO_MODEL_KEY,
+        XIAOMI_MIMO_VOICE_DESIGN_MODEL_KEY,
+    ])
     const hasDefaultModel = params.models.some((model) => model.modelKey === XIAOMI_MIMO_DEFAULT_MODEL_KEY)
     if (!hasDefaultModel) {
         return { models: params.models, defaultModels: params.defaultModels, changed: false }
@@ -134,23 +149,40 @@ export function applyXiaomiMiMoTextDefaults(params: {
 
     let modelsChanged = false
     const models = params.models.map((model) => {
-        if (model.modelKey !== XIAOMI_MIMO_DEFAULT_MODEL_KEY) return model
-        if (model.enabled && model.llmProtocol === 'chat-completions') return model
+        if (!xiaomiModelKeysToEnable.has(model.modelKey)) return model
+        const shouldKeepProtocol = model.type !== 'llm' || model.llmProtocol === 'chat-completions'
+        if (model.enabled && shouldKeepProtocol) return model
         modelsChanged = true
         return {
             ...model,
             enabled: true,
-            llmProtocol: 'chat-completions' as const,
+            ...(model.type === 'llm' ? { llmProtocol: 'chat-completions' as const } : {}),
         }
     })
-    const defaultModels = params.defaultModels.analysisModel === XIAOMI_MIMO_DEFAULT_MODEL_KEY
-        ? params.defaultModels
-        : { ...params.defaultModels, analysisModel: XIAOMI_MIMO_DEFAULT_MODEL_KEY }
+    const normalizedAnalysisModel = normalizeXiaomiMiMoModelKey(params.defaultModels.analysisModel)
+    const normalizedAudioModel = normalizeXiaomiMiMoModelKey(params.defaultModels.audioModel)
+    const normalizedVoiceDesignModel = normalizeXiaomiMiMoModelKey(params.defaultModels.voiceDesignModel)
+    const defaultModels = {
+        ...params.defaultModels,
+        analysisModel: normalizedAnalysisModel || XIAOMI_MIMO_DEFAULT_MODEL_KEY,
+        audioModel: normalizedAudioModel || params.defaultModels.audioModel || '',
+        voiceDesignModel: normalizedVoiceDesignModel || params.defaultModels.voiceDesignModel || '',
+    }
+
+    if (!defaultModels.audioModel) {
+        defaultModels.audioModel = XIAOMI_MIMO_AUDIO_MODEL_KEY
+    }
+    if (!defaultModels.voiceDesignModel) {
+        defaultModels.voiceDesignModel = XIAOMI_MIMO_VOICE_DESIGN_MODEL_KEY
+    }
 
     return {
         models,
         defaultModels,
-        changed: modelsChanged || defaultModels !== params.defaultModels,
+        changed: modelsChanged
+            || defaultModels.analysisModel !== params.defaultModels.analysisModel
+            || defaultModels.audioModel !== params.defaultModels.audioModel
+            || defaultModels.voiceDesignModel !== params.defaultModels.voiceDesignModel,
     }
 }
 

@@ -41,6 +41,12 @@ import type {
   OpenAICompatMediaTemplateSource,
 } from '@/lib/openai-compat-media-template'
 import { validateOpenAICompatMediaTemplate } from '@/lib/user-api/model-template/validator'
+import {
+  isXiaomiMiMoProviderId,
+  normalizeXiaomiMiMoBaseUrl,
+  normalizeXiaomiMiMoModelId,
+  normalizeXiaomiMiMoModelKey,
+} from '@/lib/xiaomi-mimo'
 
 type ApiModeType = 'gemini-sdk' | 'openai-official'
 type GatewayRouteType = 'official' | 'openai-compat'
@@ -751,10 +757,14 @@ function normalizeStoredModel(raw: unknown, index: number, options?: { strictCus
   const providerFromField = readTrimmedString(raw.provider)
   const modelIdFromField = readTrimmedString(raw.modelId)
   const modelKeyFromField = readTrimmedString(raw.modelKey)
-  const parsedModelKey = parseModelKeyStrict(modelKeyFromField)
+  const normalizedModelKeyFromField = normalizeXiaomiMiMoModelKey(modelKeyFromField)
+  const parsedModelKey = parseModelKeyStrict(normalizedModelKeyFromField)
 
   const provider = providerFromField || parsedModelKey?.provider || ''
-  const modelId = modelIdFromField || parsedModelKey?.modelId || ''
+  const rawModelId = modelIdFromField || parsedModelKey?.modelId || ''
+  const modelId = isXiaomiMiMoProviderId(provider)
+    ? normalizeXiaomiMiMoModelId(rawModelId)
+    : rawModelId
   const modelKey = composeModelKey(provider, modelId)
 
   if (!modelKey) {
@@ -906,7 +916,9 @@ function normalizeProvidersInput(rawProviders: unknown): StoredProvider[] {
 
     const baseUrl = normalizeMinimaxProviderBaseUrl({
       providerId: id,
-      baseUrl: readTrimmedString(item.baseUrl) || undefined,
+      baseUrl: isXiaomiMiMoProviderId(id)
+        ? normalizeXiaomiMiMoBaseUrl(readTrimmedString(item.baseUrl) || undefined)
+        : (readTrimmedString(item.baseUrl) || undefined),
       strict: true,
       field: `providers[${index}].baseUrl`,
     })
@@ -1246,7 +1258,7 @@ function validateDefaultModelKey(field: DefaultModelField, value: unknown): stri
       field: `defaultModels.${field}`,
     })
   }
-  return parsed.modelKey
+  return normalizeXiaomiMiMoModelKey(parsed.modelKey)
 }
 
 function normalizeDefaultModelsInput(rawDefaultModels: unknown): DefaultModelsPayload {
@@ -1463,7 +1475,9 @@ function parseStoredProviders(rawProviders: string | null | undefined): StoredPr
 
     const baseUrl = normalizeMinimaxProviderBaseUrl({
       providerId: id,
-      baseUrl: readTrimmedString(raw.baseUrl) || undefined,
+      baseUrl: isXiaomiMiMoProviderId(id)
+        ? normalizeXiaomiMiMoBaseUrl(readTrimmedString(raw.baseUrl) || undefined)
+        : (readTrimmedString(raw.baseUrl) || undefined),
       strict: false,
       field: `customProviders[${index}].baseUrl`,
     })
@@ -1728,15 +1742,15 @@ export const GET = apiHandler(async () => {
   }
 
   const rawDefaults: DefaultModelsPayload = {
-    analysisModel: pref?.analysisModel || '',
-    characterModel: pref?.characterModel || '',
-    locationModel: pref?.locationModel || '',
-    storyboardModel: pref?.storyboardModel || '',
-    editModel: pref?.editModel || '',
-    videoModel: pref?.videoModel || '',
-    audioModel: pref?.audioModel || '',
-    lipSyncModel: pref?.lipSyncModel || DEFAULT_LIPSYNC_MODEL_KEY,
-    voiceDesignModel: pref?.voiceDesignModel || '',
+    analysisModel: normalizeXiaomiMiMoModelKey(pref?.analysisModel || ''),
+    characterModel: normalizeXiaomiMiMoModelKey(pref?.characterModel || ''),
+    locationModel: normalizeXiaomiMiMoModelKey(pref?.locationModel || ''),
+    storyboardModel: normalizeXiaomiMiMoModelKey(pref?.storyboardModel || ''),
+    editModel: normalizeXiaomiMiMoModelKey(pref?.editModel || ''),
+    videoModel: normalizeXiaomiMiMoModelKey(pref?.videoModel || ''),
+    audioModel: normalizeXiaomiMiMoModelKey(pref?.audioModel || ''),
+    lipSyncModel: normalizeXiaomiMiMoModelKey(pref?.lipSyncModel || DEFAULT_LIPSYNC_MODEL_KEY),
+    voiceDesignModel: normalizeXiaomiMiMoModelKey(pref?.voiceDesignModel || ''),
   }
   const defaultModels = billingMode === 'OFF'
     ? rawDefaults

@@ -19,6 +19,12 @@ import type {
   OpenAICompatMediaTemplateSource,
 } from './openai-compat-media-template'
 import { validateOpenAICompatMediaTemplate } from './user-api/model-template/validator'
+import {
+  isXiaomiMiMoProviderId,
+  normalizeXiaomiMiMoBaseUrl,
+  normalizeXiaomiMiMoModelId,
+  normalizeXiaomiMiMoModelKey,
+} from './xiaomi-mimo'
 
 export interface CustomModel {
   modelId: string
@@ -66,6 +72,9 @@ function normalizeProviderBaseUrl(providerId: string, rawBaseUrl?: string): stri
   }
 
   const baseUrl = readTrimmedString(rawBaseUrl)
+  if (isXiaomiMiMoProviderId(providerId)) {
+    return normalizeXiaomiMiMoBaseUrl(baseUrl)
+  }
   if (!baseUrl) return undefined
   if (providerKey !== 'openai-compatible') return baseUrl
 
@@ -180,7 +189,7 @@ function parseCustomProviders(rawProviders: string | null | undefined): CustomPr
     providers.push({
       id,
       name,
-      baseUrl: readTrimmedString(raw.baseUrl) || undefined,
+      baseUrl: normalizeProviderBaseUrl(id, readTrimmedString(raw.baseUrl) || undefined),
       apiKey: readTrimmedString(raw.apiKey) || undefined,
       apiMode,
       gatewayRoute,
@@ -202,10 +211,13 @@ function normalizeStoredModel(raw: unknown, index: number): CustomModel {
   const providerFromField = readTrimmedString(raw.provider)
   const modelIdFromField = readTrimmedString(raw.modelId)
   const modelKeyFromField = readTrimmedString(raw.modelKey)
-
-  const parsedFromKey = modelKeyFromField ? parseModelKeyStrict(modelKeyFromField) : null
+  const normalizedModelKeyFromField = normalizeXiaomiMiMoModelKey(modelKeyFromField)
+  const parsedFromKey = normalizedModelKeyFromField ? parseModelKeyStrict(normalizedModelKeyFromField) : null
   const provider = providerFromField || parsedFromKey?.provider || ''
-  const modelId = modelIdFromField || parsedFromKey?.modelId || ''
+  const rawModelId = modelIdFromField || parsedFromKey?.modelId || ''
+  const modelId = isXiaomiMiMoProviderId(provider)
+    ? normalizeXiaomiMiMoModelId(rawModelId)
+    : rawModelId
   const modelKey = composeModelKey(provider, modelId)
 
   if (!modelKey) {
@@ -304,7 +316,7 @@ async function readUserConfig(userId: string): Promise<{ models: CustomModel[]; 
 }
 
 function findModelByKey(models: CustomModel[], modelKey: string): CustomModel | null {
-  const parsed = assertModelKey(modelKey, 'model')
+  const parsed = assertModelKey(normalizeXiaomiMiMoModelKey(modelKey), 'model')
   return models.find((model) => model.modelId === parsed.modelId && model.provider === parsed.provider) || null
 }
 
