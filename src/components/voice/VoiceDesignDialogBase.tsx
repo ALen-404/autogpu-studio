@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslations } from 'next-intl'
 import { resolveTaskPresentationState } from '@/lib/task/presentation'
@@ -19,6 +19,7 @@ export type { VoiceDesignMutationPayload, VoiceDesignMutationResult } from './vo
 interface VoiceDesignDialogBaseProps {
   isOpen: boolean
   speaker: string
+  initialVoicePrompt?: string
   hasExistingVoice?: boolean
   onClose: () => void
   onSave: (voiceId: string, audioBase64: string) => void
@@ -28,6 +29,7 @@ interface VoiceDesignDialogBaseProps {
 export default function VoiceDesignDialogBase({
   isOpen,
   speaker,
+  initialVoicePrompt,
   hasExistingVoice = false,
   onClose,
   onSave,
@@ -35,8 +37,9 @@ export default function VoiceDesignDialogBase({
 }: VoiceDesignDialogBaseProps) {
   const t = useTranslations('common')
   const tv = useTranslations('voice.voiceDesign')
+  const normalizedInitialVoicePrompt = initialVoicePrompt?.trim() ?? ''
 
-  const [voicePrompt, setVoicePrompt] = useState('')
+  const [voicePrompt, setVoicePrompt] = useState(normalizedInitialVoicePrompt)
   const [previewText, setPreviewText] = useState(tv('defaultPreviewText'))
   const [schemeCount, setSchemeCount] = useState(String(DEFAULT_VOICE_SCHEME_COUNT))
   const [isDesignSubmitting, setIsDesignSubmitting] = useState(false)
@@ -46,6 +49,7 @@ export default function VoiceDesignDialogBase({
   const [showConfirmDialog, setShowConfirmDialog] = useState(false)
   const [playingIndex, setPlayingIndex] = useState<number | null>(null)
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  const promptSeedRef = useRef<string | null>(null)
   const designSubmittingState = isDesignSubmitting
     ? resolveTaskPresentationState({
         phase: 'processing',
@@ -54,6 +58,21 @@ export default function VoiceDesignDialogBase({
         hasOutput: false,
       })
     : null
+
+  useEffect(() => {
+    if (!isOpen) {
+      promptSeedRef.current = null
+      return
+    }
+
+    const promptSeed = `${speaker}\n${normalizedInitialVoicePrompt}`
+    if (promptSeedRef.current === promptSeed) return
+    promptSeedRef.current = promptSeed
+    setVoicePrompt(normalizedInitialVoicePrompt)
+    setError(null)
+    setGeneratedVoices([])
+    setSelectedIndex(null)
+  }, [isOpen, normalizedInitialVoicePrompt, speaker])
 
   const handleGenerate = async () => {
     if (!voicePrompt.trim()) {
@@ -129,7 +148,7 @@ export default function VoiceDesignDialogBase({
   }
 
   const handleClose = () => {
-    setVoicePrompt('')
+    setVoicePrompt(normalizedInitialVoicePrompt)
     setPreviewText(tv('defaultPreviewText'))
     setSchemeCount(String(DEFAULT_VOICE_SCHEME_COUNT))
     setError(null)

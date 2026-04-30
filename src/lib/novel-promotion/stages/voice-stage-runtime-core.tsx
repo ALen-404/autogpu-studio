@@ -34,6 +34,7 @@ import { useVoiceGenerationActions } from './voice-stage-runtime/useVoiceGenerat
 import { useVoiceLineCrudActions } from './voice-stage-runtime/useVoiceLineCrudActions'
 import { useVoiceRuntimeSync } from './voice-stage-runtime/useVoiceRuntimeSync'
 import { useVoiceLineBindings } from './voice-stage-runtime/useVoiceLineBindings'
+import { buildCharacterVoicePrompt } from '@/components/voice/voice-design-shared'
 
 export type { VoiceStageShellProps } from './voice-stage-runtime/types'
 
@@ -219,6 +220,11 @@ export function useVoiceStageRuntime({
     setInlineBindingSpeaker(speaker)
   }, [])
 
+  const inlineBindingVoicePrompt = useMemo(() => {
+    if (!inlineBindingSpeaker) return ''
+    return buildCharacterVoicePrompt(matchCharacterBySpeaker(inlineBindingSpeaker) ?? { name: inlineBindingSpeaker })
+  }, [inlineBindingSpeaker, matchCharacterBySpeaker])
+
   const handleCloseInlineBinding = useCallback(() => {
     setInlineBindingSpeaker(null)
   }, [])
@@ -321,6 +327,7 @@ export function useVoiceStageRuntime({
       <SpeakerVoiceBindingDialog
         isOpen={!!inlineBindingSpeaker}
         speaker={inlineBindingSpeaker ?? ''}
+        initialVoicePrompt={inlineBindingVoicePrompt}
         projectId={projectId}
         episodeId={episodeId}
         onClose={handleCloseInlineBinding}

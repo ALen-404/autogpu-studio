@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { useTranslations } from 'next-intl'
 import {
     useDesignAssetHubVoice,
@@ -21,11 +21,20 @@ export interface VoiceCreationModalShellProps {
     onSuccess: () => void
     /** 预填充的音色名称（如发言人名字） */
     initialVoiceName?: string
+    /** 预填充的声音设计描述 */
+    initialVoicePrompt?: string
 }
 
 type CreationMode = 'design' | 'upload'
 
-export function useVoiceCreation({ isOpen, folderId, onClose, onSuccess, initialVoiceName }: VoiceCreationModalShellProps) {
+export function useVoiceCreation({
+    isOpen,
+    folderId,
+    onClose,
+    onSuccess,
+    initialVoiceName,
+    initialVoicePrompt,
+}: VoiceCreationModalShellProps) {
     const t = useTranslations('common')
     const tHub = useTranslations('assetHub')
     const tv = useTranslations('voice.voiceDesign')
@@ -33,10 +42,11 @@ export function useVoiceCreation({ isOpen, folderId, onClose, onSuccess, initial
 
     // 创建模式：设计 or 上传
     const [mode, setMode] = useState<CreationMode>('design')
+    const normalizedInitialVoicePrompt = initialVoicePrompt?.trim() ?? ''
 
     // 设计模式状态
     const [voiceName, setVoiceName] = useState(initialVoiceName ?? '')
-    const [voicePrompt, setVoicePrompt] = useState('')
+    const [voicePrompt, setVoicePrompt] = useState(normalizedInitialVoicePrompt)
     const [previewText, setPreviewText] = useState(tv('defaultPreviewText'))
     const [schemeCount, setSchemeCount] = useState(String(DEFAULT_VOICE_SCHEME_COUNT))
     const [isVoiceCreationSubmitting, setIsVoiceCreationSubmitting] = useState(false)
@@ -46,6 +56,7 @@ export function useVoiceCreation({ isOpen, folderId, onClose, onSuccess, initial
     const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
     const [playingIndex, setPlayingIndex] = useState<number | null>(null)
     const audioRef = useRef<HTMLAudioElement | null>(null)
+    const initialSeedRef = useRef<string | null>(null)
     const voiceCreationSubmittingState = isVoiceCreationSubmitting
         ? resolveTaskPresentationState({
             phase: 'processing',
@@ -72,6 +83,22 @@ export function useVoiceCreation({ isOpen, folderId, onClose, onSuccess, initial
     const designVoiceMutation = useDesignAssetHubVoice()
     const saveDesignedMutation = useSaveDesignedAssetHubVoice()
     const uploadVoiceMutation = useUploadAssetHubVoice()
+
+    useEffect(() => {
+        if (!isOpen) {
+            initialSeedRef.current = null
+            return
+        }
+
+        const seed = `${initialVoiceName ?? ''}\n${normalizedInitialVoicePrompt}`
+        if (initialSeedRef.current === seed) return
+        initialSeedRef.current = seed
+        setVoiceName(initialVoiceName ?? '')
+        setVoicePrompt(normalizedInitialVoicePrompt)
+        setError(null)
+        setGeneratedVoices([])
+        setSelectedIndex(null)
+    }, [initialVoiceName, isOpen, normalizedInitialVoicePrompt])
 
     // 生成音色
     const handleGenerate = async () => {
@@ -255,7 +282,7 @@ export function useVoiceCreation({ isOpen, folderId, onClose, onSuccess, initial
     const handleClose = () => {
         setMode('design')
         setVoiceName(initialVoiceName ?? '')
-        setVoicePrompt('')
+        setVoicePrompt(normalizedInitialVoicePrompt)
         setPreviewText(tv('defaultPreviewText'))
         setSchemeCount(String(DEFAULT_VOICE_SCHEME_COUNT))
         setError(null)

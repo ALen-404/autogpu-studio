@@ -45,6 +45,8 @@ type GlobalCharacterRecord = {
   id: string
   name: string
   folderId: string | null
+  profileData?: string | null
+  profileConfirmed?: boolean | null
   customVoiceUrl: string | null
   media?: MediaRef | null
   appearances: Array<{
@@ -292,8 +294,8 @@ export function mapGlobalCharacterToAsset(character: GlobalCharacterRecord): Cha
     taskState: createIdleTaskState(),
     variants,
     introduction: null,
-    profileData: null,
-    profileConfirmed: null,
+    profileData: character.profileData ?? null,
+    profileConfirmed: character.profileConfirmed ?? null,
     profileTaskRefs: [],
     profileTaskState: createIdleTaskState(),
     voice: {

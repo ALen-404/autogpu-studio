@@ -14,6 +14,7 @@ type BindingTab = 'select' | 'upload' | 'design'
 interface SpeakerVoiceBindingDialogProps {
     isOpen: boolean
     speaker: string
+    initialVoicePrompt?: string
     projectId: string
     episodeId: string
     onClose: () => void
@@ -28,6 +29,7 @@ interface SpeakerVoiceBindingDialogProps {
 export default function SpeakerVoiceBindingDialog({
     isOpen,
     speaker,
+    initialVoicePrompt,
     onClose,
     onBound,
 }: SpeakerVoiceBindingDialogProps) {
@@ -108,6 +110,7 @@ export default function SpeakerVoiceBindingDialog({
                 isOpen
                 folderId={null}
                 initialVoiceName={speaker}
+                initialVoicePrompt={initialVoicePrompt}
                 onClose={handleClose}
                 onSuccess={handleCreationSuccess}
             />

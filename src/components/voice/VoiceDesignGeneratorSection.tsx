@@ -8,6 +8,7 @@ import type { TaskPresentationState } from '@/lib/task/presentation'
 import {
   MAX_VOICE_SCHEME_COUNT,
   MIN_VOICE_SCHEME_COUNT,
+  MAX_VOICE_PROMPT_LENGTH,
   normalizeVoiceSchemeCount,
   type GeneratedVoice,
 } from './voice-design-shared'
@@ -94,7 +95,8 @@ export default function VoiceDesignGeneratorSection({
           onChange={(event) => onVoicePromptChange(event.target.value)}
           placeholder={tv('describePlaceholder')}
           className="glass-textarea-base w-full px-3 py-2 text-sm resize-none"
-          rows={2}
+          rows={4}
+          maxLength={MAX_VOICE_PROMPT_LENGTH}
         />
       </div>
 

@@ -9,6 +9,7 @@ import { useDesignAssetHubVoice } from '@/lib/query/hooks'
 interface VoiceDesignDialogProps {
   isOpen: boolean
   speaker: string
+  initialVoicePrompt?: string
   hasExistingVoice?: boolean
   onClose: () => void
   onSave: (voiceId: string, audioBase64: string) => void
@@ -17,6 +18,7 @@ interface VoiceDesignDialogProps {
 export default function VoiceDesignDialog({
   isOpen,
   speaker,
+  initialVoicePrompt,
   hasExistingVoice = false,
   onClose,
   onSave,
@@ -33,6 +35,7 @@ export default function VoiceDesignDialog({
     <VoiceDesignDialogBase
       isOpen={isOpen}
       speaker={speaker}
+      initialVoicePrompt={initialVoicePrompt}
       hasExistingVoice={hasExistingVoice}
       onClose={onClose}
       onSave={onSave}

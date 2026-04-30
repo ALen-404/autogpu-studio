@@ -27,6 +27,7 @@ import { queryKeys } from '@/lib/query/keys'
 import { AppIcon } from '@/components/ui/icons'
 import { Link } from '@/i18n/navigation'
 import { useImageGenerationCount } from '@/lib/image-generation/use-image-generation-count'
+import { buildCharacterVoicePrompt } from '@/components/voice/voice-design-shared'
 
 export default function AssetHubPage() {
     const t = useTranslations('assetHub')
@@ -69,6 +70,7 @@ export default function AssetHubPage() {
     const [voiceDesignCharacter, setVoiceDesignCharacter] = useState<{
         id: string
         name: string
+        initialVoicePrompt: string
         hasExistingVoice: boolean
     } | null>(null)
 
@@ -209,6 +211,9 @@ export default function AssetHubPage() {
         setVoiceDesignCharacter({
             id: characterId,
             name: characterName,
+            initialVoicePrompt: character?.kind === 'character'
+                ? buildCharacterVoicePrompt(character)
+                : buildCharacterVoicePrompt({ name: characterName }),
             hasExistingVoice: character?.kind === 'character' ? !!character.voice.customVoiceUrl : false,
         })
     }
@@ -586,6 +591,7 @@ export default function AssetHubPage() {
                 <VoiceDesignDialog
                     isOpen={!!voiceDesignCharacter}
                     speaker={voiceDesignCharacter.name}
+                    initialVoicePrompt={voiceDesignCharacter.initialVoicePrompt}
                     hasExistingVoice={voiceDesignCharacter.hasExistingVoice}
                     onClose={() => setVoiceDesignCharacter(null)}
                     onSave={handleVoiceDesignSave}

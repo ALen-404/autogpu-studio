@@ -16,10 +16,12 @@ import {
     useUpdateProjectCharacterVoiceSettings,
     useSaveProjectDesignedVoice,
 } from '@/lib/query/hooks'
+import { buildCharacterVoicePrompt } from '@/components/voice/voice-design-shared'
 
 interface VoiceDesignCharacter {
     id: string
     name: string
+    initialVoicePrompt: string
     hasExistingVoice: boolean
 }
 
@@ -74,6 +76,7 @@ export function useTTSGeneration({
         setVoiceDesignCharacter({
             id: characterId,
             name: characterName,
+            initialVoicePrompt: buildCharacterVoicePrompt(character ?? { name: characterName }),
             hasExistingVoice: !!character?.customVoiceUrl
         })
     }
