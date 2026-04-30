@@ -1,4 +1,5 @@
 import { getProviderConfig } from '@/lib/api-config'
+import { toXiaomiMiMoApiModelId } from '@/lib/xiaomi-mimo'
 
 export interface XiaomiMiMoVoiceDesignInput {
   voicePrompt: string
@@ -60,6 +61,7 @@ export async function createXiaomiMiMoVoiceDesign(
       error: `PROVIDER_BASE_URL_MISSING: ${config.id}`,
     }
   }
+  const apiModelId = toXiaomiMiMoApiModelId(input.modelId)
 
   const response = await fetch(buildChatCompletionsEndpoint(config.baseUrl), {
     method: 'POST',
@@ -69,7 +71,7 @@ export async function createXiaomiMiMoVoiceDesign(
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: input.modelId,
+      model: apiModelId,
       messages: [
         {
           role: 'user',
@@ -107,7 +109,7 @@ export async function createXiaomiMiMoVoiceDesign(
   return {
     success: true,
     voiceId: `mimo-designed:${input.preferredName || data.id || data.request_id || 'voice'}`,
-    targetModel: input.modelId,
+    targetModel: apiModelId,
     audioBase64,
     sampleRate: 24000,
     responseFormat: 'wav',

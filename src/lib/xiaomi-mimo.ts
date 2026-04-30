@@ -37,6 +37,12 @@ const XIAOMI_MIMO_MODEL_ID_ALIASES: Record<string, string> = {
   'mimo-v2-flash': XIAOMI_MIMO_DEFAULT_MODEL_ID,
 }
 
+const XIAOMI_MIMO_API_MODEL_ID_ALIASES: Record<string, string> = {
+  'mimo-v2.5-tts-voiceclone': 'mimo-v2.5-tts-voiceclone',
+  'mimo-v2.5-tts-voicedesign': 'mimo-v2.5-tts-voicedesign',
+  'mimo-v2.5-tts': 'mimo-v2.5-tts',
+}
+
 function readTrimmedString(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
 }
@@ -65,6 +71,12 @@ export function normalizeXiaomiMiMoModelId(modelId: string | null | undefined): 
   const value = readTrimmedString(modelId)
   if (!value) return ''
   return XIAOMI_MIMO_MODEL_ID_ALIASES[value.toLowerCase()] || value
+}
+
+export function toXiaomiMiMoApiModelId(modelId: string | null | undefined): string {
+  const value = readTrimmedString(modelId)
+  if (!value) return ''
+  return XIAOMI_MIMO_API_MODEL_ID_ALIASES[value.toLowerCase()] || value
 }
 
 export function normalizeXiaomiMiMoModelKey(modelKey: string | null | undefined): string {
