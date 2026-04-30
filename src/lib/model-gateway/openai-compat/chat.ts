@@ -4,14 +4,20 @@ import { buildOpenAIChatCompletion } from '@/lib/llm/providers/openai-compat'
 import { extractStreamDeltaParts } from '@/lib/llm/utils'
 import { withStreamChunkTimeout } from '@/lib/llm/stream-timeout'
 import { emitStreamChunk, emitStreamStage, resolveStreamStepMeta } from '@/lib/llm/stream-helpers'
+import { isXiaomiMiMoProviderId, toXiaomiMiMoApiModelId } from '@/lib/xiaomi-mimo'
 import type { OpenAICompatChatRequest } from '../types'
 import { createOpenAICompatClient, resolveOpenAICompatClientConfig } from './common'
+
+function resolveApiModelId(providerId: string, modelId: string): string {
+  return isXiaomiMiMoProviderId(providerId) ? toXiaomiMiMoApiModelId(modelId) : modelId
+}
 
 export async function runOpenAICompatChatCompletion(input: OpenAICompatChatRequest): Promise<OpenAI.Chat.Completions.ChatCompletion> {
   const config = await resolveOpenAICompatClientConfig(input.userId, input.providerId)
   const client = createOpenAICompatClient(config)
+  const apiModelId = resolveApiModelId(config.providerId, input.modelId)
   return await client.chat.completions.create({
-    model: input.modelId,
+    model: apiModelId,
     messages: input.messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
     temperature: input.temperature,
   })
@@ -28,10 +34,11 @@ export async function runOpenAICompatChatCompletionStream(
   const config = await resolveOpenAICompatClientConfig(input.userId, input.providerId)
   const client = createOpenAICompatClient(config)
   const stepMeta = resolveStreamStepMeta({})
+  const apiModelId = resolveApiModelId(config.providerId, input.modelId)
 
   emitStreamStage(callbacks, stepMeta, 'streaming', 'openai-compat')
   const stream = await client.chat.completions.create({
-    model: input.modelId,
+    model: apiModelId,
     messages: input.messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
     temperature: input.temperature,
     stream: true,

@@ -65,6 +65,22 @@ describe('llm test connection', () => {
     })
   })
 
+  it('uses lowercase xiaomi mimo model id for openai-compatible connection test', async () => {
+    await testLlmConnection({
+      provider: 'openai-compatible',
+      apiKey: 'mimo-key',
+      baseUrl: 'https://token-plan-cn.xiaomimimo.com/v1',
+      model: 'MiMo-V2.5-Pro',
+    })
+
+    expect(openAIState.create).toHaveBeenCalledWith({
+      model: 'mimo-v2.5-pro',
+      messages: [{ role: 'user', content: '1+1等于几？只回答数字' }],
+      max_tokens: 10,
+      temperature: 0,
+    })
+  })
+
   it('requires baseUrl for gemini-compatible provider', async () => {
     await expect(testLlmConnection({
       provider: 'gemini-compatible',

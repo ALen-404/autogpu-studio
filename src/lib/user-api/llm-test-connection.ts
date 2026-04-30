@@ -1,5 +1,6 @@
 import OpenAI from 'openai'
 import { ApiError } from '@/lib/api-errors'
+import { isXiaomiMiMoBaseUrl, toXiaomiMiMoApiModelId } from '@/lib/xiaomi-mimo'
 
 type SupportedProvider =
   | 'openrouter'
@@ -91,8 +92,11 @@ async function testOpenAICompatibleConnection(params: {
   })
 
   if (params.model) {
+    const apiModel = isXiaomiMiMoBaseUrl(params.baseURL)
+      ? toXiaomiMiMoApiModelId(params.model)
+      : params.model
     const response = await client.chat.completions.create({
-      model: params.model,
+      model: apiModel,
       messages: [{ role: 'user', content: '1+1等于几？只回答数字' }],
       max_tokens: 10,
       temperature: 0,

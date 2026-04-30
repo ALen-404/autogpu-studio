@@ -1,5 +1,6 @@
 import OpenAI from 'openai'
 import { setProxy } from '../../../lib/prompts/proxy'
+import { isXiaomiMiMoBaseUrl, toXiaomiMiMoApiModelId } from '@/lib/xiaomi-mimo'
 
 export type TestStepName = 'models' | 'textGen' | 'imageGen' | 'credits' | 'audioGen'
 export type TestStepStatus = 'pass' | 'fail' | 'skip'
@@ -260,8 +261,11 @@ async function runCompatibleLlmFallback(baseUrl: string, apiKey: string, llmMode
       baseURL: baseUrl,
       timeout: 30_000,
     })
+    const apiModel = isXiaomiMiMoBaseUrl(baseUrl)
+      ? toXiaomiMiMoApiModelId(llmModel)
+      : llmModel
     const response = await client.chat.completions.create({
-      model: llmModel,
+      model: apiModel,
       messages: [{ role: 'user', content: 'hi' }],
       max_tokens: 20,
       temperature: 0,

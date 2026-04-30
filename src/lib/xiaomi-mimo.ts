@@ -38,9 +38,15 @@ const XIAOMI_MIMO_MODEL_ID_ALIASES: Record<string, string> = {
 }
 
 const XIAOMI_MIMO_API_MODEL_ID_ALIASES: Record<string, string> = {
+  'mimo-v2.5-pro': 'mimo-v2.5-pro',
+  'mimo-v2.5': 'mimo-v2.5',
+  'mimo-v2-pro': 'mimo-v2-pro',
+  'mimo-v2-omni': 'mimo-v2-omni',
+  'mimo-v2-flash': 'mimo-v2-flash',
   'mimo-v2.5-tts-voiceclone': 'mimo-v2.5-tts-voiceclone',
   'mimo-v2.5-tts-voicedesign': 'mimo-v2.5-tts-voicedesign',
   'mimo-v2.5-tts': 'mimo-v2.5-tts',
+  'mimo-v2-tts': 'mimo-v2-tts',
 }
 
 function readTrimmedString(value: unknown): string {
@@ -67,6 +73,19 @@ export function normalizeXiaomiMiMoBaseUrl(baseUrl: string | null | undefined): 
   }
 }
 
+export function isXiaomiMiMoBaseUrl(baseUrl: string | null | undefined): boolean {
+  const value = readTrimmedString(baseUrl)
+  if (!value) return false
+
+  try {
+    const parsed = new URL(value)
+    const normalizedUrl = `${parsed.origin}${parsed.pathname.replace(/\/+$/, '')}`.toLowerCase()
+    return XIAOMI_MIMO_BASE_URL_ALIASES.has(normalizedUrl)
+  } catch {
+    return false
+  }
+}
+
 export function normalizeXiaomiMiMoModelId(modelId: string | null | undefined): string {
   const value = readTrimmedString(modelId)
   if (!value) return ''
@@ -76,7 +95,9 @@ export function normalizeXiaomiMiMoModelId(modelId: string | null | undefined): 
 export function toXiaomiMiMoApiModelId(modelId: string | null | undefined): string {
   const value = readTrimmedString(modelId)
   if (!value) return ''
-  return XIAOMI_MIMO_API_MODEL_ID_ALIASES[value.toLowerCase()] || value
+  const lowercaseValue = value.toLowerCase()
+  if (lowercaseValue.startsWith('mimo-')) return lowercaseValue
+  return XIAOMI_MIMO_API_MODEL_ID_ALIASES[lowercaseValue] || value
 }
 
 export function normalizeXiaomiMiMoModelKey(modelKey: string | null | undefined): string {

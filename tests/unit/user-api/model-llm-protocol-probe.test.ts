@@ -37,6 +37,34 @@ describe('user-api model llm protocol probe', () => {
     expect(String(firstCall?.[0])).toBe('https://compat.example.com/v1/responses')
   })
 
+  it('sends lowercase xiaomi mimo model id when probing protocol', async () => {
+    resolveOpenAICompatClientConfigMock.mockResolvedValueOnce({
+      providerId: 'openai-compatible:xiaomi-mimo',
+      baseUrl: 'https://token-plan-cn.xiaomimimo.com/v1',
+      apiKey: 'mimo-key',
+    })
+    const fetchMock = vi.fn(async (...args: [RequestInfo | URL, RequestInit?]) => {
+      const input = args[0]
+      const url = String(input)
+      if (url.endsWith('/responses')) return new Response('not found', { status: 404 })
+      return new Response(JSON.stringify({ id: 'chatcmpl_1' }), { status: 200 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await probeModelLlmProtocol({
+      userId: 'user-1',
+      providerId: 'openai-compatible:xiaomi-mimo',
+      modelId: 'MiMo-V2.5-Pro',
+    })
+
+    expect(result.success).toBe(true)
+    const bodies = fetchMock.mock.calls.map((call) => {
+      const init = call[1] as RequestInit | undefined
+      return JSON.parse(String(init?.body || '{}')) as { model?: string }
+    })
+    expect(bodies.map((body) => body.model)).toEqual(['mimo-v2.5-pro', 'mimo-v2.5-pro'])
+  })
+
   it('returns chat-completions when responses is unsupported and chat succeeds', async () => {
     const fetchMock = vi.fn(async (input: unknown) => {
       const url = String(input)

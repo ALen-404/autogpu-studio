@@ -1,5 +1,6 @@
 import { getProviderKey } from '@/lib/api-config'
 import { resolveOpenAICompatClientConfig } from '@/lib/model-gateway/openai-compat/common'
+import { isXiaomiMiMoProviderId, toXiaomiMiMoApiModelId } from '@/lib/xiaomi-mimo'
 
 const PROBE_TIMEOUT_MS = 15_000
 
@@ -230,6 +231,9 @@ export async function probeModelLlmProtocol(
   }
 
   const clientConfig = await resolveOpenAICompatClientConfig(input.userId, input.providerId)
+  const apiModelId = isXiaomiMiMoProviderId(clientConfig.providerId)
+    ? toXiaomiMiMoApiModelId(modelId)
+    : modelId
   const responsesUrl = toEndpoint(clientConfig.baseUrl, '/responses')
   const chatCompletionsUrl = toEndpoint(clientConfig.baseUrl, '/chat/completions')
 
@@ -241,7 +245,7 @@ export async function probeModelLlmProtocol(
     url: responsesUrl,
     apiKey: clientConfig.apiKey,
     body: {
-      model: modelId,
+      model: apiModelId,
       input: [{
         role: 'user',
         content: [{ type: 'input_text', text: 'ping' }],
@@ -266,7 +270,7 @@ export async function probeModelLlmProtocol(
     url: chatCompletionsUrl,
     apiKey: clientConfig.apiKey,
     body: {
-      model: modelId,
+      model: apiModelId,
       messages: [{ role: 'user', content: 'ping' }],
       max_tokens: 8,
       temperature: 0,

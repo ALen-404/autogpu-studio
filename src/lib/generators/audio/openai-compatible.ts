@@ -3,6 +3,7 @@ import {
   readStringOption,
   resolveOpenAICompatClientConfig,
 } from '@/lib/model-gateway/openai-compat/common'
+import { isXiaomiMiMoProviderId, toXiaomiMiMoApiModelId } from '@/lib/xiaomi-mimo'
 
 function resolveAudioModel(options: Record<string, unknown>): string {
   return readStringOption(options.modelId, 'modelId') || 'gpt-4o-mini-tts'
@@ -59,9 +60,12 @@ export class OpenAICompatibleAudioGenerator extends BaseAudioGenerator {
     const providerId = this.providerId || 'openai-compatible'
     const config = await resolveOpenAICompatClientConfig(userId, providerId)
     const model = resolveAudioModel(options)
+    const apiModel = isXiaomiMiMoProviderId(config.providerId)
+      ? toXiaomiMiMoApiModelId(model)
+      : model
 
     const requestBody: Record<string, unknown> = {
-      model,
+      model: apiModel,
       input: text,
       voice: resolveVoice(params.voice),
     }

@@ -1,5 +1,6 @@
 import { buildOpenAIChatCompletion } from '@/lib/llm/providers/openai-compat'
 import { buildReasoningAwareContent } from '@/lib/llm/utils'
+import { isXiaomiMiMoProviderId, toXiaomiMiMoApiModelId } from '@/lib/xiaomi-mimo'
 import type { OpenAICompatChatRequest } from '../types'
 import { resolveOpenAICompatClientConfig } from './common'
 
@@ -97,6 +98,9 @@ function extractResponsesUsage(payload: unknown): ResponsesUsage {
 export async function runOpenAICompatResponsesCompletion(input: OpenAICompatChatRequest) {
   const config = await resolveOpenAICompatClientConfig(input.userId, input.providerId)
   const endpoint = toEndpoint(config.baseUrl, '/responses')
+  const apiModelId = isXiaomiMiMoProviderId(config.providerId)
+    ? toXiaomiMiMoApiModelId(input.modelId)
+    : input.modelId
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: {
@@ -104,7 +108,7 @@ export async function runOpenAICompatResponsesCompletion(input: OpenAICompatChat
       'Authorization': `Bearer ${config.apiKey}`,
     },
     body: JSON.stringify({
-      model: input.modelId,
+      model: apiModelId,
       input: input.messages.map((message) => ({
         role: message.role,
         content: [{ type: 'input_text', text: message.content }],
@@ -133,4 +137,3 @@ export async function runOpenAICompatResponsesCompletion(input: OpenAICompatChat
     usage,
   )
 }
-

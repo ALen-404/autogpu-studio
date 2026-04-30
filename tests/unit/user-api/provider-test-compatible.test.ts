@@ -72,6 +72,23 @@ describe('provider test connection compatible probes', () => {
     })
   })
 
+  it('uses lowercase xiaomi mimo model id for fallback llm test', async () => {
+    const result = await testProviderConnection({
+      apiType: 'openai-compatible',
+      baseUrl: 'https://token-plan-cn.xiaomimimo.com/v1',
+      apiKey: 'mimo-key',
+      llmModel: 'MiMo-V2.5-Pro',
+    })
+
+    expect(result.success).toBe(true)
+    expect(openAIState.create).toHaveBeenCalledWith({
+      model: 'mimo-v2.5-pro',
+      messages: [{ role: 'user', content: 'hi' }],
+      max_tokens: 20,
+      temperature: 0,
+    })
+  })
+
   it('marks success when any free probe endpoint passes', async () => {
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input)
