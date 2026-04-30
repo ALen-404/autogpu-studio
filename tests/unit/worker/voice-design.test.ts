@@ -8,8 +8,13 @@ const bailianMock = vi.hoisted(() => ({
   validatePreviewText: vi.fn(),
 }))
 
+const xiaomiMiMoMock = vi.hoisted(() => ({
+  createXiaomiMiMoVoiceDesign: vi.fn(),
+}))
+
 const apiConfigMock = vi.hoisted(() => ({
   getProviderConfig: vi.fn(),
+  resolveModelSelection: vi.fn(),
 }))
 
 const workerMock = vi.hoisted(() => ({
@@ -18,6 +23,7 @@ const workerMock = vi.hoisted(() => ({
 }))
 
 vi.mock('@/lib/providers/bailian/voice-design', () => bailianMock)
+vi.mock('@/lib/providers/xiaomi-mimo/voice-design', () => xiaomiMiMoMock)
 vi.mock('@/lib/api-config', () => apiConfigMock)
 vi.mock('@/lib/workers/shared', () => ({
   reportTaskProgress: workerMock.reportTaskProgress,
@@ -50,6 +56,22 @@ describe('worker voice-design behavior', () => {
     bailianMock.validateVoicePrompt.mockReturnValue({ valid: true })
     bailianMock.validatePreviewText.mockReturnValue({ valid: true })
     apiConfigMock.getProviderConfig.mockResolvedValue({ apiKey: 'bailian-key' })
+    apiConfigMock.resolveModelSelection.mockImplementation(async (_userId: string, modelKey: string) => {
+      if (modelKey === 'openai-compatible:xiaomi-mimo::MiMo-V2.5-TTS-VoiceDesign') {
+        return {
+          provider: 'openai-compatible:xiaomi-mimo',
+          modelId: 'MiMo-V2.5-TTS-VoiceDesign',
+          modelKey,
+          mediaType: 'audio',
+        }
+      }
+      return {
+        provider: 'bailian',
+        modelId: 'qwen-voice-design',
+        modelKey,
+        mediaType: 'audio',
+      }
+    })
     bailianMock.createVoiceDesign.mockResolvedValue({
       success: true,
       voiceId: 'voice-id-1',
@@ -59,6 +81,16 @@ describe('worker voice-design behavior', () => {
       responseFormat: 'mp3',
       usageCount: 11,
       requestId: 'req-1',
+    })
+    xiaomiMiMoMock.createXiaomiMiMoVoiceDesign.mockResolvedValue({
+      success: true,
+      voiceId: 'mimo-designed:voice-id-1',
+      targetModel: 'MiMo-V2.5-TTS-VoiceDesign',
+      audioBase64: 'mimo-base64-audio',
+      sampleRate: 24000,
+      responseFormat: 'wav',
+      usageCount: 13,
+      requestId: 'mimo-req-1',
     })
   })
 
@@ -83,10 +115,12 @@ describe('worker voice-design behavior', () => {
       previewText: '  hello world  ',
       preferredName: '  custom_name  ',
       language: 'en',
+      voiceDesignModel: 'bailian::qwen-voice-design',
     })
 
     const result = await handleVoiceDesignTask(job)
 
+    expect(apiConfigMock.resolveModelSelection).toHaveBeenCalledWith('user-1', 'bailian::qwen-voice-design', 'audio')
     expect(apiConfigMock.getProviderConfig).toHaveBeenCalledWith('user-1', 'bailian')
     expect(bailianMock.createVoiceDesign).toHaveBeenCalledWith({
       voicePrompt: 'calm female narrator',
@@ -99,6 +133,40 @@ describe('worker voice-design behavior', () => {
       success: true,
       voiceId: 'voice-id-1',
       taskType: TASK_TYPE.ASSET_HUB_VOICE_DESIGN,
+    }))
+  })
+
+  it('xiaomi mimo voice design -> uses selected provider instead of bailian', async () => {
+    const job = buildJob(TASK_TYPE.VOICE_DESIGN, {
+      voicePrompt: '  warm narration voice  ',
+      previewText: '  你好世界  ',
+      preferredName: '  mimo_voice  ',
+      language: 'zh',
+      voiceDesignModel: 'openai-compatible:xiaomi-mimo::MiMo-V2.5-TTS-VoiceDesign',
+    })
+
+    const result = await handleVoiceDesignTask(job)
+
+    expect(apiConfigMock.resolveModelSelection).toHaveBeenCalledWith(
+      'user-1',
+      'openai-compatible:xiaomi-mimo::MiMo-V2.5-TTS-VoiceDesign',
+      'audio',
+    )
+    expect(apiConfigMock.getProviderConfig).not.toHaveBeenCalled()
+    expect(bailianMock.createVoiceDesign).not.toHaveBeenCalled()
+    expect(xiaomiMiMoMock.createXiaomiMiMoVoiceDesign).toHaveBeenCalledWith({
+      voicePrompt: 'warm narration voice',
+      previewText: '你好世界',
+      preferredName: 'mimo_voice',
+      language: 'zh',
+      userId: 'user-1',
+      providerId: 'openai-compatible:xiaomi-mimo',
+      modelId: 'MiMo-V2.5-TTS-VoiceDesign',
+    })
+    expect(result).toEqual(expect.objectContaining({
+      success: true,
+      voiceId: 'mimo-designed:voice-id-1',
+      taskType: TASK_TYPE.VOICE_DESIGN,
     }))
   })
 })

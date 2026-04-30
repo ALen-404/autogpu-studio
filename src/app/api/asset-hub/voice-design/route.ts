@@ -1,5 +1,6 @@
 import { createHash } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
+import { prisma } from '@/lib/prisma'
 import { requireUserAuth, isErrorResponse } from '@/lib/api-auth'
 import { apiHandler, ApiError, getRequestId } from '@/lib/api-errors'
 import { submitTask } from '@/lib/task/submitter'
@@ -7,6 +8,7 @@ import { resolveRequiredTaskLocale } from '@/lib/task/resolve-locale'
 import { TASK_TYPE } from '@/lib/task/types'
 import { buildDefaultTaskBillingInfo } from '@/lib/billing'
 import { validatePreviewText, validateVoicePrompt } from '@/lib/providers/bailian/voice-design'
+import { parseModelKeyStrict } from '@/lib/model-config-contract'
 
 /**
  * 声音设计 API (Asset Hub)
@@ -35,6 +37,24 @@ export const POST = apiHandler(async (request: NextRequest) => {
     throw new ApiError('INVALID_PARAMS')
   }
 
+  const pref = await prisma.userPreference.findUnique({
+    where: { userId: session.user.id },
+    select: { voiceDesignModel: true },
+  })
+  const voiceDesignModel = typeof pref?.voiceDesignModel === 'string' ? pref.voiceDesignModel.trim() : ''
+  if (!voiceDesignModel) {
+    throw new ApiError('MODEL_NOT_CONFIGURED', {
+      field: 'voiceDesignModel',
+      message: '请先在设置页面配置声音设计模型',
+    })
+  }
+  if (voiceDesignModel && !parseModelKeyStrict(voiceDesignModel)) {
+    throw new ApiError('INVALID_PARAMS', {
+      code: 'MODEL_KEY_INVALID',
+      field: 'voiceDesignModel',
+    })
+  }
+
   const digest = createHash('sha1')
     .update(`${session.user.id}:${voicePrompt}:${previewText}:${preferredName}:${language}`)
     .digest('hex')
@@ -45,7 +65,9 @@ export const POST = apiHandler(async (request: NextRequest) => {
     previewText,
     preferredName,
     language,
-    displayMode: 'detail' as const}
+    voiceDesignModel,
+    displayMode: 'detail' as const,
+  }
 
   const result = await submitTask({
     userId: session.user.id,
@@ -57,7 +79,8 @@ export const POST = apiHandler(async (request: NextRequest) => {
     targetId: session.user.id,
     payload,
     dedupeKey: `${TASK_TYPE.ASSET_HUB_VOICE_DESIGN}:${digest}`,
-    billingInfo: buildDefaultTaskBillingInfo(TASK_TYPE.ASSET_HUB_VOICE_DESIGN, payload)})
+    billingInfo: buildDefaultTaskBillingInfo(TASK_TYPE.ASSET_HUB_VOICE_DESIGN, payload),
+  })
 
   return NextResponse.json(result)
 })

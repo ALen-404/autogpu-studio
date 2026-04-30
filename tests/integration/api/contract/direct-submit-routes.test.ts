@@ -72,7 +72,10 @@ const hasOutputMock = vi.hoisted(() => ({
 
 const prismaMock = vi.hoisted(() => ({
   userPreference: {
-    findUnique: vi.fn(async () => ({ lipSyncModel: 'fal::lipsync-model' })),
+    findUnique: vi.fn(async () => ({
+      lipSyncModel: 'fal::lipsync-model',
+      voiceDesignModel: 'openai-compatible:xiaomi-mimo::MiMo-V2.5-TTS-VoiceDesign',
+    })),
   },
   novelPromotionStoryboard: {
     findUnique: vi.fn(async () => ({
@@ -382,6 +385,9 @@ const DIRECT_CASES: ReadonlyArray<DirectRouteCase> = [
     expectedTaskType: TASK_TYPE.ASSET_HUB_VOICE_DESIGN,
     expectedTargetType: 'GlobalAssetHubVoiceDesign',
     expectedProjectId: 'global-asset-hub',
+    expectedPayloadSubset: {
+      voiceDesignModel: 'openai-compatible:xiaomi-mimo::MiMo-V2.5-TTS-VoiceDesign',
+    },
   },
   {
     routeFile: 'src/app/api/novel-promotion/[projectId]/generate-image/route.ts',
@@ -526,6 +532,9 @@ const DIRECT_CASES: ReadonlyArray<DirectRouteCase> = [
     expectedTaskType: TASK_TYPE.VOICE_DESIGN,
     expectedTargetType: 'NovelPromotionProject',
     expectedProjectId: 'project-1',
+    expectedPayloadSubset: {
+      voiceDesignModel: 'openai-compatible:xiaomi-mimo::MiMo-V2.5-TTS-VoiceDesign',
+    },
   },
   {
     routeFile: 'src/app/api/novel-promotion/[projectId]/voice-generate/route.ts',

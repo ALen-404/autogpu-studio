@@ -1,11 +1,17 @@
 import type { Job } from 'bullmq'
 import {
-  createVoiceDesign,
+  createVoiceDesign as createBailianVoiceDesign,
   validatePreviewText,
   validateVoicePrompt,
   type VoiceDesignInput,
+  type VoiceDesignResult,
 } from '@/lib/providers/bailian/voice-design'
-import { getProviderConfig } from '@/lib/api-config'
+import {
+  createXiaomiMiMoVoiceDesign,
+  type XiaomiMiMoVoiceDesignResult,
+} from '@/lib/providers/xiaomi-mimo/voice-design'
+import { getProviderConfig, resolveModelSelection } from '@/lib/api-config'
+import { isXiaomiMiMoProviderId } from '@/lib/xiaomi-mimo'
 import { reportTaskProgress } from '@/lib/workers/shared'
 import { assertTaskActive } from '@/lib/workers/utils'
 import { TASK_TYPE, type TaskJobData } from '@/lib/task/types'
@@ -20,6 +26,20 @@ function readRequiredString(value: unknown, field: string): string {
 function readLanguage(value: unknown): 'zh' | 'en' {
   return value === 'en' ? 'en' : 'zh'
 }
+
+function getProviderKey(providerId: string): string {
+  const colonIndex = providerId.indexOf(':')
+  return colonIndex === -1 ? providerId : providerId.slice(0, colonIndex)
+}
+
+function readVoiceDesignModel(value: unknown): string {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error('Voice design model not configured')
+  }
+  return value.trim()
+}
+
+type VoiceDesignProviderResult = VoiceDesignResult | XiaomiMiMoVoiceDesignResult
 
 export async function handleVoiceDesignTask(job: Job<TaskJobData>) {
   const payload = (job.data.payload || {}) as Record<string, unknown>
@@ -46,14 +66,32 @@ export async function handleVoiceDesignTask(job: Job<TaskJobData>) {
   })
   await assertTaskActive(job, 'voice_design_submit')
 
-  const { apiKey } = await getProviderConfig(job.data.userId, 'bailian')
   const input: VoiceDesignInput = {
     voicePrompt,
     previewText,
     preferredName,
     language,
   }
-  const designed = await createVoiceDesign(input, apiKey)
+  const voiceDesignModel = await resolveModelSelection(
+    job.data.userId,
+    readVoiceDesignModel(payload.voiceDesignModel),
+    'audio',
+  )
+  const providerKey = getProviderKey(voiceDesignModel.provider).toLowerCase()
+  let designed: VoiceDesignProviderResult
+  if (providerKey === 'bailian') {
+    const { apiKey } = await getProviderConfig(job.data.userId, voiceDesignModel.provider)
+    designed = await createBailianVoiceDesign(input, apiKey)
+  } else if (providerKey === 'openai-compatible' && isXiaomiMiMoProviderId(voiceDesignModel.provider)) {
+    designed = await createXiaomiMiMoVoiceDesign({
+      ...input,
+      userId: job.data.userId,
+      providerId: voiceDesignModel.provider,
+      modelId: voiceDesignModel.modelId,
+    })
+  } else {
+    throw new Error(`VOICE_DESIGN_PROVIDER_UNSUPPORTED: ${voiceDesignModel.provider}`)
+  }
   if (!designed.success) {
     throw new Error(designed.error || '声音设计失败')
   }
