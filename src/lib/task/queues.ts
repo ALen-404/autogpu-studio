@@ -1,4 +1,5 @@
-import { JobsOptions, Queue } from 'bullmq'
+import { Queue } from 'bullmq'
+import type { JobsOptions } from 'bullmq'
 import { queueRedis } from '@/lib/redis'
 import { QueueType, TaskType, TASK_TYPE, type TaskJobData } from './types'
 
@@ -19,25 +20,36 @@ const defaultJobOptions: JobsOptions = {
   },
 }
 
-export const imageQueue = new Queue<TaskJobData>(QUEUE_NAME.IMAGE, {
-  connection: queueRedis,
-  defaultJobOptions,
-})
+const SHOULD_SKIP_QUEUE_CREATION =
+  process.env.BUILD_SKIP_RUNTIME_BOOTSTRAP === '1'
+  || process.env.BUILD_SKIP_RUNTIME_BOOTSTRAP === 'true'
+  || process.env.NEXT_PHASE === 'phase-production-build'
 
-export const videoQueue = new Queue<TaskJobData>(QUEUE_NAME.VIDEO, {
-  connection: queueRedis,
-  defaultJobOptions,
-})
+function createUnavailableQueue(name: string): Queue<TaskJobData> {
+  return {
+    async add() {
+      throw new Error(`QUEUE_UNAVAILABLE_DURING_BUILD: ${name}`)
+    },
+    async getJob() {
+      return null
+    },
+  } as unknown as Queue<TaskJobData>
+}
 
-export const voiceQueue = new Queue<TaskJobData>(QUEUE_NAME.VOICE, {
-  connection: queueRedis,
-  defaultJobOptions,
-})
+function createTaskQueue(name: string): Queue<TaskJobData> {
+  if (SHOULD_SKIP_QUEUE_CREATION) {
+    return createUnavailableQueue(name)
+  }
+  return new Queue<TaskJobData>(name, {
+    connection: queueRedis,
+    defaultJobOptions,
+  })
+}
 
-export const textQueue = new Queue<TaskJobData>(QUEUE_NAME.TEXT, {
-  connection: queueRedis,
-  defaultJobOptions,
-})
+export const imageQueue = createTaskQueue(QUEUE_NAME.IMAGE)
+export const videoQueue = createTaskQueue(QUEUE_NAME.VIDEO)
+export const voiceQueue = createTaskQueue(QUEUE_NAME.VOICE)
+export const textQueue = createTaskQueue(QUEUE_NAME.TEXT)
 
 const ALL_QUEUES = [imageQueue, videoQueue, voiceQueue, textQueue]
 
